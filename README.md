@@ -101,23 +101,23 @@ VBoxManage startvm "CyberXP-OS"
 ```
 ┌─────────────────────────────────────────────────────┐
 │           CyberXP Dashboard (Web UI)                │
-│  ┌──────────┐  ┌────────┐  ┌────────┐  ┌────────┐ │
-│  │ Alerts   │  │ Config │  │ Reports│  │ Actions│ │
-│  └──────────┘  └────────┘  └────────┘  └────────┘ │
+│  ┌──────────┐  ┌────────┐  ┌────────┐  ┌────────┐   │
+│  │ Alerts   │  │ Config │  │ Reports│  │ Actions│   │
+│  └──────────┘  └────────┘  └────────┘  └────────┘   │
 ├─────────────────────────────────────────────────────┤
 │             CyberXP Services (systemd)              │
-│  ┌──────────────────────────────────────────────┐  │
-│  │ cyberxp-agent    (AI threat assessment)      │  │
-│  │ cyberxp-collector (log/alert ingestion)      │  │
-│  │ cyberxp-defender  (auto-response engine)     │  │
-│  │ cyberxp-api      (REST endpoint)             │  │
-│  └──────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────┐   │
+│  │ cyberxp-agent    (AI threat assessment)      │   │
+│  │ cyberxp-collector (log/alert ingestion)      │   │
+│  │ cyberxp-defender  (auto-response engine)     │   │
+│  │ cyberxp-api      (REST endpoint)             │   │
+│  └──────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────┤
 │          Security Monitoring Stack                  │
-│  ┌───────────┐  ┌─────────┐  ┌──────────────────┐ │
-│  │ Suricata  │  │  Zeek   │  │  OSQuery         │ │
-│  │ (IDS/IPS) │  │  (NDR)  │  │  (Endpoint Mon.) │ │
-│  └───────────┘  └─────────┘  └──────────────────┘ │
+│  ┌───────────┐  ┌─────────┐  ┌──────────────────┐   │
+│  │ Suricata  │  │  Zeek   │  │  OSQuery         │   │
+│  │ (IDS/IPS) │  │  (NDR)  │  │  (Endpoint Mon.) │   │
+│  └───────────┘  └─────────┘  └──────────────────┘   │
 ├─────────────────────────────────────────────────────┤
 │        Alpine Linux (Hardened Kernel)               │
 │  Security: AppArmor, Firewall, SELinux-ready        │
