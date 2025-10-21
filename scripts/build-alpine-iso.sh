@@ -162,54 +162,75 @@ CHROOT_EOF
 }
 
 install_cyberxp() {
-    log_info "Installing CyberXP AI agent..."
+    log_info "Installing CyberXP-OS Dashboard..."
     
-    # Copy CyberXP core to rootfs
-    if [[ ! -d "$CYBERXP_CORE" ]]; then
-        log_error "CyberXP core not found at $CYBERXP_CORE"
-        log_info "Make sure you've cloned CyberXP alongside CyberXP-OS"
-        exit 1
+    # Install lightweight Flask dashboard
+    mkdir -p "$BUILD_DIR/rootfs/opt/cyberxp-dashboard"
+    cp -r config/desktop/cyberxp-dashboard/* "$BUILD_DIR/rootfs/opt/cyberxp-dashboard/"
+    
+    # Optionally copy CyberXP core for backend analysis (if available)
+    if [[ -d "$CYBERXP_CORE" ]]; then
+        log_info "Installing CyberXP core for backend analysis..."
+        mkdir -p "$BUILD_DIR/rootfs/opt/cyberxp"
+        cp -r "$CYBERXP_CORE"/* "$BUILD_DIR/rootfs/opt/cyberxp/"
+    else
+        log_warn "CyberXP core not found at $CYBERXP_CORE (optional - dashboard will work without it)"
     fi
-    
-    mkdir -p "$BUILD_DIR/rootfs/opt/cyberxp"
-    cp -r "$CYBERXP_CORE"/* "$BUILD_DIR/rootfs/opt/cyberxp/"
     
     # Install Python dependencies
     chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-cd /opt/cyberxp
+# Install Flask and minimal dependencies for dashboard
+pip3 install --no-cache-dir Flask==3.0.0 Werkzeug==3.0.1
 
-# Install Python packages
-pip3 install --no-cache-dir -r requirements.txt
+# Install CyberXP core dependencies if available
+if [ -f /opt/cyberxp/requirements.txt ]; then
+    pip3 install --no-cache-dir -r /opt/cyberxp/requirements.txt || true
+fi
 
-echo "CyberXP dependencies installed"
+echo "Dashboard and dependencies installed"
 CHROOT_EOF
 
-    log_success "CyberXP installed to /opt/cyberxp"
+    log_success "CyberXP-OS Dashboard installed to /opt/cyberxp-dashboard"
 }
 
-create_systemd_services() {
-    log_info "Creating systemd services..."
+create_openrc_services() {
+    log_info "Creating OpenRC services..."
     
-    # Copy service files from config
-    cp config/services/*.service "$BUILD_DIR/rootfs/etc/init.d/" 2>/dev/null || true
+    # Copy OpenRC init scripts from config
+    cp config/services/cyberxp-agent "$BUILD_DIR/rootfs/etc/init.d/" 2>/dev/null || true
+    chmod +x "$BUILD_DIR/rootfs/etc/init.d/cyberxp-agent" 2>/dev/null || true
     
     # Enable services in chroot
     chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-# Enable OpenRC (Alpine's init system)
+# Enable OpenRC boot services
 rc-update add devfs boot
 rc-update add dmesg boot
 rc-update add mdev boot
 rc-update add hwclock boot
+rc-update add modules boot
 
-# Enable networking
+# Enable networking services
+rc-update add hostname boot
 rc-update add networking boot
 rc-update add sshd default
 
-# Note: CyberXP service will be added later
-echo "Services configured"
+# Enable CyberXP Dashboard
+if [ -f /etc/init.d/cyberxp-agent ]; then
+    chmod +x /etc/init.d/cyberxp-agent
+    rc-update add cyberxp-agent default
+    echo "✓ CyberXP Dashboard enabled for auto-start"
+else
+    echo "⚠ Warning: CyberXP Dashboard init script not found"
+fi
+
+# Enable security services
+rc-update add iptables default 2>/dev/null || true
+rc-update add fail2ban default 2>/dev/null || true
+
+echo "OpenRC services configured"
 CHROOT_EOF
 
-    log_success "Services created and enabled"
+    log_success "OpenRC services created and enabled"
 }
 
 configure_system() {
@@ -349,7 +370,7 @@ main() {
     setup_chroot
     install_base_packages
     install_cyberxp
-    create_systemd_services
+    create_openrc_services
     configure_system
     cleanup_chroot
     create_iso

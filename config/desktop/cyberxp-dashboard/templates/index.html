@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberXP-OS Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            color: white;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+        
+        .card h2 {
+            color: #1e3c72;
+            margin-bottom: 1rem;
+            font-size: 1.3rem;
+            border-bottom: 2px solid #2a5298;
+            padding-bottom: 0.5rem;
+        }
+        
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .stat:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            color: #666;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: #1e3c72;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+        
+        .status-running {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .status-stopped {
+            background: #f44336;
+            color: white;
+        }
+        
+        .alert-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        .btn {
+            background: #2a5298;
+            color: white;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #1e3c72;
+        }
+        
+        .btn-danger {
+            background: #f44336;
+        }
+        
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+        
+        .action-panel {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .input-group input {
+            flex: 1;
+            padding: 0.6rem;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #2a5298;
+        }
+        
+        .log-viewer {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 1rem;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+        
+        .log-line {
+            padding: 0.2rem 0;
+            border-bottom: 1px solid #333;
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            padding: 2rem;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛡️ CyberXP-OS Security Dashboard</h1>
+        <p>AI-Powered Defensive Security Operating System | {{ hostname }}</p>
+    </div>
+    
+    <div class="container">
+        <!-- System Overview -->
+        <div class="grid">
+            <div class="card">
+                <h2>System Status</h2>
+                <div class="stat">
+                    <span class="stat-label">Hostname:</span>
+                    <span class="stat-value">{{ hostname }}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Uptime:</span>
+                    <span class="stat-value" id="uptime">{{ system_info.uptime }}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Load Average:</span>
+                    <span class="stat-value" id="loadavg">
+                        {% if system_info.loadavg %}
+                            {{ system_info.loadavg[0] }}, {{ system_info.loadavg[1] }}, {{ system_info.loadavg[2] }}
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>Memory Usage</h2>
+                <div class="stat">
+                    <span class="stat-label">Total:</span>
+                    <span class="stat-value" id="mem-total">{{ system_info.memory.total }}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Used:</span>
+                    <span class="stat-value" id="mem-used">{{ system_info.memory.used }}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Free:</span>
+                    <span class="stat-value" id="mem-free">{{ system_info.memory.free }}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Usage:</span>
+                    <span class="stat-value" id="mem-percent">{{ system_info.memory.percent }}%</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>Security Services</h2>
+                <div id="services-status">
+                    <div class="stat">
+                        <span class="stat-label">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="action-panel">
+            <h2 style="color: #1e3c72; margin-bottom: 1rem;">Quick Actions</h2>
+            <div class="input-group">
+                <input type="text" id="ip-input" placeholder="Enter IP address to block">
+                <button class="btn btn-danger" onclick="blockIP()">Block IP</button>
+            </div>
+            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                <button class="btn" onclick="refreshStatus()">Refresh Status</button>
+                <button class="btn" onclick="viewLogs('cyberxp')">View CyberXP Logs</button>
+                <button class="btn" onclick="viewLogs('suricata')">View Suricata Alerts</button>
+            </div>
+        </div>
+        
+        <!-- Recent Alerts -->
+        <div class="card">
+            <h2>Recent Security Alerts</h2>
+            <div id="alerts-container">
+                <p style="color: #666;">Loading alerts...</p>
+            </div>
+        </div>
+        
+        <!-- Log Viewer -->
+        <div id="log-viewer" style="display: none;">
+            <div class="card">
+                <h2>Log Viewer</h2>
+                <div class="log-viewer" id="log-content"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>CyberXP-OS v0.1.0-alpha | Built with ❤️ for the security community</p>
+    </div>
+    
+    <script>
+        // Auto-refresh every 5 seconds
+        setInterval(refreshStatus, 5000);
+        
+        // Initial load
+        refreshStatus();
+        
+        function refreshStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update system info
+                    document.getElementById('uptime').textContent = data.system.uptime;
+                    document.getElementById('loadavg').textContent = data.system.loadavg.join(', ');
+                    document.getElementById('mem-total').textContent = data.system.memory.total;
+                    document.getElementById('mem-used').textContent = data.system.memory.used;
+                    document.getElementById('mem-free').textContent = data.system.memory.free;
+                    document.getElementById('mem-percent').textContent = data.system.memory.percent + '%';
+                    
+                    // Update services
+                    updateServices(data.services);
+                    
+                    // Update alerts
+                    updateAlerts(data.alerts);
+                });
+        }
+        
+        function updateServices(services) {
+            const container = document.getElementById('services-status');
+            container.innerHTML = '';
+            
+            for (const [name, status] of Object.entries(services)) {
+                const div = document.createElement('div');
+                div.className = 'stat';
+                div.innerHTML = `
+                    <span class="stat-label">${name}:</span>
+                    <span class="status ${status === 'running' ? 'status-running' : 'status-stopped'}">
+                        ${status.toUpperCase()}
+                    </span>
+                `;
+                container.appendChild(div);
+            }
+        }
+        
+        function updateAlerts(alerts) {
+            const container = document.getElementById('alerts-container');
+            
+            if (alerts.length === 0) {
+                container.innerHTML = '<p style="color: #4caf50;">✓ No recent alerts</p>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            alerts.forEach(alert => {
+                const div = document.createElement('div');
+                div.className = 'alert-box';
+                div.textContent = alert.message;
+                container.appendChild(div);
+            });
+        }
+        
+        function blockIP() {
+            const ip = document.getElementById('ip-input').value;
+            if (!ip) {
+                alert('Please enter an IP address');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to block IP ${ip}?`)) {
+                return;
+            }
+            
+            fetch('/api/block-ip', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ip: ip})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(`IP ${ip} has been blocked successfully`);
+                    document.getElementById('ip-input').value = '';
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error blocking IP: ' + error);
+            });
+        }
+        
+        function viewLogs(service) {
+            fetch(`/api/logs/${service}`)
+                .then(response => response.json())
+                .then(data => {
+                    const logViewer = document.getElementById('log-viewer');
+                    const logContent = document.getElementById('log-content');
+                    
+                    logContent.innerHTML = '';
+                    data.logs.forEach(line => {
+                        const div = document.createElement('div');
+                        div.className = 'log-line';
+                        div.textContent = line;
+                        logContent.appendChild(div);
+                    });
+                    
+                    logViewer.style.display = 'block';
+                    logViewer.scrollIntoView({behavior: 'smooth'});
+                });
+        }
+    </script>
+</body>
+</html>
+

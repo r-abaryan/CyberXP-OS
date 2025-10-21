@@ -1,0 +1,65 @@
+#!/sbin/openrc-run
+###############################################################################
+# CyberXP-OS Dashboard - OpenRC Init Script
+# For Alpine Linux
+###############################################################################
+
+name="CyberXP Dashboard"
+description="Lightweight web-based security monitoring dashboard"
+
+command="/usr/bin/python3"
+command_args="/opt/cyberxp-dashboard/app.py"
+command_user="cyberxp:cyberxp"
+command_background="yes"
+
+directory="/opt/cyberxp-dashboard"
+pidfile="/run/cyberxp-dashboard.pid"
+output_log="/var/log/cyberxp-dashboard.log"
+error_log="/var/log/cyberxp-dashboard.err"
+
+# Dependencies
+depend() {
+    need net
+    use dns
+    after firewall
+}
+
+# Pre-start checks
+start_pre() {
+    # Check if dashboard directory exists
+    if [ ! -d "/opt/cyberxp-dashboard" ]; then
+        eerror "CyberXP Dashboard not found at /opt/cyberxp-dashboard"
+        return 1
+    fi
+    
+    # Create log directory
+    mkdir -p /var/log
+    touch "${output_log}" "${error_log}"
+    chown cyberxp:cyberxp "${output_log}" "${error_log}"
+    
+    # Set environment variables
+    export PYTHONUNBUFFERED=1
+    export FLASK_APP=app.py
+    export FLASK_ENV=production
+    
+    einfo "Starting CyberXP Dashboard..."
+}
+
+# Post-start actions
+start_post() {
+    einfo "CyberXP Dashboard started"
+    einfo "Access at: http://localhost:8080"
+}
+
+# Stop actions
+stop() {
+    einfo "Stopping CyberXP Dashboard..."
+    default_stop
+}
+
+# Reload configuration
+reload() {
+    einfo "Reloading CyberXP Dashboard..."
+    start-stop-daemon --signal HUP --pidfile "${pidfile}"
+}
+

@@ -1,0 +1,25 @@
+# Network interface configuration for CyberXP-OS
+# Location: /etc/network/interfaces
+
+# Loopback interface
+auto lo
+iface lo inet loopback
+
+# Primary network interface (DHCP - default)
+auto eth0
+iface eth0 inet dhcp
+
+# Uncomment below for static IP configuration
+# auto eth0
+# iface eth0 inet static
+#     address 192.168.1.100
+#     netmask 255.255.255.0
+#     gateway 192.168.1.1
+#     dns-nameservers 8.8.8.8 8.8.4.4
+
+# Secondary interface (monitoring/span port)
+# auto eth1
+# iface eth1 inet manual
+#     up ip link set eth1 up
+#     up ip link set eth1 promisc on
+
