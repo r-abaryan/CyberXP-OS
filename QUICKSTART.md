@@ -62,39 +62,42 @@ VBoxManage startvm "CyberXP-OS-Dev"
 # Username: cyberxp
 # Password: cyberxp
 
-# Access CyberXP from host machine:
-# http://localhost:7860
+# Access Dashboard from host machine:
+# http://localhost:8080
 ```
 
 ---
 
 ## What You Get
 
-- Alpine Linux base (lightweight)
-- CyberXP AI agent pre-installed at `/opt/cyberxp`
-- Python 3 + all dependencies
-- Security tools (Suricata, fail2ban, nmap)
-- Auto-start services configured
+- Alpine Linux 3.18.4 base (lightweight, ~130MB)
+- Flask Dashboard at `/opt/cyberxp-dashboard` (port 8080)
+- Python 3 + Flask dependencies
+- Security tools (Suricata, fail2ban, nmap, iptables)
+- OpenRC services auto-start configured
+- Hardened firewall and kernel settings
 
 ---
 
 ## Next Steps
 
-1. **Test CyberXP**: Access http://localhost:7860
-2. **Customize**: Edit configs in `config/`
-3. **Rebuild**: Make changes and run build script again
-4. **Deploy**: Burn ISO to USB or deploy to hardware
+1. **Test Dashboard**: Access http://localhost:8080
+2. **Review Logs**: Check system status, alerts, and logs
+3. **Customize**: Edit configs in `config/`
+4. **Rebuild**: Make changes and run build script again
+5. **Deploy**: Burn ISO to USB or deploy to hardware
 
 ---
 
 ## Status
 
 **Phase 1 MVP** - Core features:
-- ✅ Bootable filesystem
-- ✅ CyberXP pre-installed
-- ✅ Basic services
-- 🔄 GUI dashboard (coming)
-- 🔄 Auto-monitoring (coming)
+- ✅ Alpine Linux filesystem
+- ✅ Flask Dashboard (port 8080)
+- ✅ OpenRC services configured
+- ✅ Security tools integrated
+- ✅ System hardening complete
+- 🔄 Bootloader (Phase 2 next)
 
 ---
 

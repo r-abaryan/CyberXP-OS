@@ -18,7 +18,7 @@ Traditional security tools are complex, expensive, and require expert knowledge.
 
 ---
 
-## ✨ Features
+## Features
 
 ### Core Capabilities
 - **CyberXP AI Agent** - Multi-agent threat assessment pre-installed
@@ -73,7 +73,7 @@ VBoxManage startvm "CyberXP-OS"
 
 ---
 
-## 📋 System Requirements
+## System Requirements
 
 ### Minimum
 - **CPU**: 2 cores, x86_64
@@ -100,69 +100,72 @@ VBoxManage startvm "CyberXP-OS"
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│           CyberXP Dashboard (Web UI)                │
+│      Flask Dashboard (http://localhost:8080)        │
 │  ┌──────────┐  ┌────────┐  ┌────────┐  ┌────────┐   │
-│  │ Alerts   │  │ Config │  │ Reports│  │ Actions│   │
+│  │ Status   │  │ Alerts │  │  Logs  │  │ Actions│   │
 │  └──────────┘  └────────┘  └────────┘  └────────┘   │
 ├─────────────────────────────────────────────────────┤
-│             CyberXP Services (systemd)              │
+│          CyberXP-OS Services (OpenRC)               │
 │  ┌──────────────────────────────────────────────┐   │
-│  │ cyberxp-agent    (AI threat assessment)      │   │
-│  │ cyberxp-collector (log/alert ingestion)      │   │
-│  │ cyberxp-defender  (auto-response engine)     │   │
-│  │ cyberxp-api      (REST endpoint)             │   │
+│  │ cyberxp-dashboard (Security monitoring UI)   │   │
+│  │ suricata          (IDS/IPS detection)        │   │
+│  │ fail2ban          (Intrusion prevention)     │   │
+│  │ iptables          (Firewall protection)      │   │
 │  └──────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────┤
 │          Security Monitoring Stack                  │
 │  ┌───────────┐  ┌─────────┐  ┌──────────────────┐   │
-│  │ Suricata  │  │  Zeek   │  │  OSQuery         │   │
-│  │ (IDS/IPS) │  │  (NDR)  │  │  (Endpoint Mon.) │   │
+│  │ Suricata  │  │ fail2ban│  │  iptables        │   │
+│  │ (IDS/IPS) │  │ (IPS)   │  │  (Firewall)      │   │
 │  └───────────┘  └─────────┘  └──────────────────┘   │
 ├─────────────────────────────────────────────────────┤
-│        Alpine Linux (Hardened Kernel)               │
-│  Security: AppArmor, Firewall, SELinux-ready        │
+│        Alpine Linux 3.18.4 (Hardened Kernel)        │
+│  Init: OpenRC | Firewall: iptables | Shell: bash   │
 └─────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📦 What's Included
+## What's Included
 
 ### Pre-installed Tools
 
-**AI Security Core**
-- CyberXP multi-agent system
-- Fine-tuned security model (2.5GB)
-- Vector RAG knowledge base
-- IOC extraction engine
+**Web Dashboard (Flask)**
+- Real-time system monitoring
+- Security alerts viewer
+- Service status tracking
+- Log viewer (Suricata, fail2ban, system)
+- Quick actions (block IPs, manage services)
+- Professional, lightweight UI (port 8080)
 
 **Network Security**
-- Suricata (IDS/IPS)
-- Zeek (network monitoring)
-- nftables (firewall)
-- tcpdump, tshark (packet analysis)
+- Suricata (IDS/IPS) ✅
+- iptables/nftables (firewall) ✅
+- tcpdump (packet analysis) ✅
+- fail2ban (intrusion prevention) ✅
 
-**Endpoint Security**
-- OSQuery (system monitoring)
-- AIDE (file integrity)
-- fail2ban (auto-blocking)
-- ClamAV (antivirus)
+**System Security**
+- OpenRC init system ✅
+- Hardened kernel (sysctl) ✅
+- SSH rate limiting ✅
+- Firewall rules pre-configured ✅
 
-**Analysis Tools**
-- Wireshark (GUI packet analyzer)
-- Volatility (memory forensics)
-- bulk_extractor (IOC extraction)
-- yara (malware detection)
+**Monitoring & Analysis**
+- htop (process monitoring) ✅
+- iotop (I/O monitoring) ✅
+- nethogs (network monitoring) ✅
+- nmap (network scanning) ✅
 
-**Integrations**
-- Splunk forwarder
-- Elastic agent
-- Syslog server
+**Coming Soon**
+- CyberXP AI integration (optional)
+- Advanced threat analysis
+- SIEM integrations (Splunk, Sentinel)
 - VirusTotal connector
+- Custom detection rules
 
 ---
 
-## 🎓 Editions
+## Editions
 
 ### Community Edition (FREE)
 - Full CyberXP AI capabilities
@@ -198,72 +201,115 @@ VBoxManage startvm "CyberXP-OS"
 git clone https://github.com/abaryan/CyberXP-OS
 cd CyberXP-OS
 
-# Initialize submodules (CyberXP core)
-git submodule update --init --recursive
+# Optional: Clone CyberXP core for AI features
+cd ..
+git clone https://github.com/abaryan/CyberXP
+cd CyberXP-OS
 
-# Build ISO (requires Linux)
+# Build ISO (requires Linux - Ubuntu 22.04+ recommended)
 sudo ./scripts/build-alpine-iso.sh
 
-# Output: build/cyberxp-os-dev.iso
+# Output: build/output/cyberxp-os-0.1.0-alpha.iso
+# Time: ~15-20 minutes (depending on internet speed)
 ```
 
 ### Development VM
 
 ```bash
-# Quick dev environment
+# Automated VM setup (VirtualBox)
 ./scripts/setup-dev-vm.sh
 
-# Starts VirtualBox VM with:
-# - Alpine Linux base
-# - CyberXP from ../CyberXP
-# - Hot-reload enabled
+# VM Configuration:
+# - 4GB RAM, 2 CPUs
+# - Port forwarding: 8080 (dashboard), 22 (SSH)
+# - ISO auto-attached if available
+
+# Start VM
+VBoxManage startvm "CyberXP-OS-Dev"
+
+# Access dashboard (once booted)
+# http://localhost:8080
+```
+
+### Testing
+
+```bash
+# Run build validation tests
+bash tools/test-build.sh
+
+# Validate configuration
+bash tools/validate-config.sh
 ```
 
 ---
 
-## 📚 Documentation
+## Documentation
 
-- [Building from Source](docs/BUILDING.md)
-- [Installation Guide](docs/INSTALLATION.md)
-- [User Manual](docs/USER_GUIDE.md)
-- [Configuration](docs/CONFIGURATION.md)
-- [Deployment Scenarios](docs/DEPLOYMENT.md)
-- [Contributing](docs/CONTRIBUTING.md)
+**User Documentation:**
+- [Quick Start Guide](QUICKSTART.md) - Get started in 10 minutes
+- [User Manual](docs/USER_GUIDE.md) - Complete guide (500+ lines)
+- [Installation Guide](docs/INSTALLATION.md) - All installation methods
+- [Configuration Guide](docs/CONFIGURATION.md) - System configuration
+
+**Developer Documentation:**
+- [Building from Source](docs/BUILDING.md) - Build instructions
+- [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
+- [Project Status](PROJECT_STATUS.md) - Current status & roadmap
+- [Implementation Status](IMPLEMENTATION_STATUS.md) - Technical details
+- [Licenses](LICENSES.md) - Software licenses
 
 ---
 
 ## 🗺️ Roadmap
 
-### Phase 1: MVP (Current)
-- ✅ Project structure
-- ✅ Build system setup
-- 🔄 Alpine base image
-- 🔄 CyberXP integration
-- 📋 Basic GUI dashboard
-- 📋 Bootable ISO
+### Phase 1: MVP Foundation ✅ COMPLETE
+- ✅ Project structure created
+- ✅ Build system (Alpine Linux 3.18.4)
+- ✅ OpenRC init system integration
+- ✅ Flask-based dashboard (lightweight)
+- ✅ Configuration files (firewall, network, hardening)
+- ✅ Security tools integration (Suricata, fail2ban)
+- ✅ Complete documentation (2,000+ lines)
+- ✅ Testing & validation tools
+- 🔄 ISO generation (filesystem ready, bootloader next)
 
-### Phase 2: Core Features
-- 📋 Auto-monitoring services
-- 📋 Threat detection pipeline
-- 📋 Web dashboard
-- 📋 One-click actions
-- 📋 Alpha testing
+### Phase 2: Bootable System (Next)
+- 📋 GRUB bootloader configuration
+- 📋 Kernel & initramfs setup
+- 📋 UEFI boot support
+- 📋 Live USB testing
+- 📋 Physical hardware compatibility
+- 📋 Auto-start all services on boot
+- 📋 First bootable ISO release
 
-### Phase 3: Polish
-- 📋 Hardware compatibility
+### Phase 3: Enhanced Features
+- 📋 Advanced threat analysis (CyberXP AI integration)
+- 📋 Automated response workflows
+- 📋 SIEM integrations (Splunk, Sentinel, Elastic)
+- 📋 Custom detection rules UI
+- 📋 Report generation
 - 📋 Performance optimization
-- 📋 User documentation
-- 📋 Beta release
+- 📋 Beta testing program
 
-### Phase 4: Enterprise
-- 📋 Fleet management
-- 📋 Central logging
+### Phase 4: Production Ready
+- 📋 Hardware compatibility testing (10+ devices)
+- 📋 Installer for permanent installation
+- 📋 Update mechanism
+- 📋 Community edition release (v1.0)
+- 📋 Professional edition features
+- 📋 Documentation polish
+
+### Phase 5: Enterprise Features
+- 📋 Fleet management dashboard
+- 📋 Centralized logging & monitoring
 - 📋 Multi-tenant support
-- 📋 v1.0 release
+- 📋 Role-based access control
+- 📋 API endpoints for automation
+- 📋 Enterprise edition release
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Areas where you can help:
 
@@ -278,7 +324,7 @@ See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for details.
 
 ---
 
-## 📄 License
+## License
 
 **CyberXP-OS**: MIT License  
 **CyberXP Core**: MIT License  
@@ -288,7 +334,7 @@ Free for personal and commercial use.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 Built on the shoulders of giants:
 
@@ -302,16 +348,37 @@ Built on the shoulders of giants:
 
 ## 📞 Contact & Support
 
-- **Website**: https://cyberxp-os.com (coming soon)
 - **GitHub**: https://github.com/abaryan/CyberXP-OS
-- **Discord**: https://discord.gg/cyberxp (coming soon)
-- **Email**: support@cyberxp-os.com
 
 ---
 
-**Status**: 🚧 Early Development (Phase 1)  
-**Version**: 0.1.0-alpha  
-**Last Updated**: October 2025
+---
 
+## 📊 Current Status
+
+**Phase**: Phase 1 MVP ✅ Complete  
+**Version**: 0.1.0-alpha  
+**Build Status**: Ready for testing  
+**Next Milestone**: Bootloader integration (Phase 2)
+
+### What's Working Now:
+- ✅ Alpine Linux 3.18.4 base system
+- ✅ Flask dashboard (port 8080)
+- ✅ OpenRC service management
+- ✅ Security tools (Suricata, fail2ban, iptables)
+- ✅ System hardening configured
+- ✅ Build automation complete
+- ✅ Complete documentation (2,000+ lines)
+
+### What's Next:
+- 🔄 GRUB bootloader setup
+- 🔄 Kernel & initramfs configuration
+- 🔄 Physical hardware testing
+- 🔄 First bootable ISO release
+
+---
+
+**Last Updated**: October 21, 2025  
+**License**: MIT License  
 **Built with ❤️ for the security community**
 

@@ -37,7 +37,7 @@ VBoxManage modifyvm "$VM_NAME" \
     --boot2 disk \
     --nic1 nat \
     --natpf1 "ssh,tcp,,2222,,22" \
-    --natpf1 "cyberxp,tcp,,7860,,7860"
+    --natpf1 "dashboard,tcp,,8080,,8080"
 
 # Create storage controller
 VBoxManage storagectl "$VM_NAME" --name "SATA" --add sata --controller IntelAhci
@@ -72,7 +72,7 @@ echo "    Disk: ${VM_DISK_SIZE}MB"
 echo ""
 echo "  Port Forwarding:"
 echo "    SSH: localhost:2222 → VM:22"
-echo "    CyberXP: localhost:7860 → VM:7860"
+echo "    Dashboard: localhost:8080 → VM:8080"
 echo ""
 echo "  Start VM:"
 echo "    VBoxManage startvm \"$VM_NAME\""
