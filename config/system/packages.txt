@@ -1,0 +1,87 @@
+# CyberXP-OS Alpine Linux Package List
+# Minimal packages for security-focused OS
+
+###############################################################################
+# Base System
+###############################################################################
+bash
+sudo
+doas
+openrc
+util-linux
+coreutils
+procps
+shadow
+
+###############################################################################
+# Python & Development
+###############################################################################
+python3
+py3-pip
+git
+curl
+wget
+
+###############################################################################
+# Networking
+###############################################################################
+iproute2
+net-tools
+iptables
+nftables
+openssh
+openssh-client
+openssh-server
+
+###############################################################################
+# Security Tools
+###############################################################################
+suricata          # IDS/IPS
+fail2ban          # Intrusion prevention
+nmap              # Network scanner
+tcpdump           # Packet capture
+wireshark         # Packet analyzer (GUI)
+aide              # File integrity
+clamav            # Antivirus
+
+###############################################################################
+# System Monitoring
+###############################################################################
+htop              # Process viewer
+iotop             # IO monitor
+nethogs           # Network monitor
+sysstat           # System statistics
+
+###############################################################################
+# Text Editors
+###############################################################################
+nano
+vim
+
+###############################################################################
+# Utilities
+###############################################################################
+tmux              # Terminal multiplexer
+screen            # Terminal multiplexer
+rsync             # File sync
+zip
+unzip
+tar
+gzip
+bzip2
+
+###############################################################################
+# Optional: Desktop Environment (for GUI version)
+###############################################################################
+# xfce4
+# xfce4-terminal
+# firefox
+# chromium
+
+###############################################################################
+# Optional: Additional Security Tools
+###############################################################################
+# zeek              # Network monitoring (heavy)
+# volatility        # Memory forensics (Python)
+# yara              # Malware detection
+

@@ -1,0 +1,67 @@
+# CyberXP-OS Build Artifacts
+
+# ISO images
+*.iso
+*.img
+*.vmdk
+*.vdi
+*.qcow2
+
+# Build directories
+build/alpine/rootfs/
+build/alpine/temp/
+build/debian/rootfs/
+build/output/
+build/*.tar.gz
+
+# Downloaded packages
+downloads/
+packages/
+cache/
+
+# VM files
+*.vbox
+*.vmx
+*.log
+*.nvram
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (IMPORTANT!)
+*.key
+*.pem
+*.crt
+secrets/
+.env
+
+# Logs
+*.log
+logs/
+
+# Keep structure files
+!.gitkeep
+

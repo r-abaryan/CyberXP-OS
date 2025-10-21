@@ -1,0 +1,35 @@
+[Unit]
+Description=CyberXP AI Security Agent
+Documentation=https://github.com/abaryan/CyberXP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cyberxp
+Group=cyberxp
+WorkingDirectory=/opt/cyberxp/HF_Space
+ExecStart=/usr/bin/python3 /opt/cyberxp/HF_Space/gradio_app.py
+Restart=always
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cyberxp/feedback_logs /opt/cyberxp/custom_agents
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+Environment="GRADIO_SERVER_NAME=0.0.0.0"
+Environment="GRADIO_SERVER_PORT=7860"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cyberxp-agent
+
+[Install]
+WantedBy=multi-user.target
+
