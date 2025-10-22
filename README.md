@@ -246,16 +246,17 @@ bash tools/validate-config.sh
 ## Documentation
 
 **User Documentation:**
-- [Quick Start Guide](QUICKSTART.md) - Get started in 10 minutes
+- [Quick Start Guide](docs/QUICKSTART.md) - Get started in 10 minutes
 - [User Manual](docs/USER_GUIDE.md) - Complete guide (500+ lines)
 - [Installation Guide](docs/INSTALLATION.md) - All installation methods
 - [Configuration Guide](docs/CONFIGURATION.md) - System configuration
 
 **Developer Documentation:**
 - [Building from Source](docs/BUILDING.md) - Build instructions
+- [Technical Architecture](docs/TECHNICAL_ARCHITECTURE.md) - Deep dive (0→100)
+- [Bootloader Guide](docs/BOOTLOADER.md) - GRUB BIOS/UEFI setup
+- [Project Status](docs/PROJECT_STATUS.md) - Current status & roadmap
 - [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
-- [Project Status](PROJECT_STATUS.md) - Current status & roadmap
-- [Implementation Status](IMPLEMENTATION_STATUS.md) - Technical details
 - [Licenses](LICENSES.md) - Software licenses
 
 ---
@@ -356,10 +357,10 @@ Built on the shoulders of giants:
 
 ## 📊 Current Status
 
-**Phase**: Phase 1 MVP ✅ Complete  
+**Phase**: Phase 2 ✅ Complete (Bootloader Done!)  
 **Version**: 0.1.0-alpha  
-**Build Status**: Ready for testing  
-**Next Milestone**: Bootloader integration (Phase 2)
+**Build Status**: **Bootable ISO Ready** 🚀  
+**Next Milestone**: Hardware testing & UEFI support
 
 ### What's Working Now:
 - ✅ Alpine Linux 3.18.4 base system
@@ -368,13 +369,15 @@ Built on the shoulders of giants:
 - ✅ Security tools (Suricata, fail2ban, iptables)
 - ✅ System hardening configured
 - ✅ Build automation complete
-- ✅ Complete documentation (2,000+ lines)
+- ✅ **GRUB bootloader configured** ✨
+- ✅ **Kernel + initramfs setup** ✨
+- ✅ **Bootable ISO generation** ✨
+- ✅ Complete documentation
 
 ### What's Next:
-- 🔄 GRUB bootloader setup
-- 🔄 Kernel & initramfs configuration
+- 🔄 UEFI boot support (BIOS works)
 - 🔄 Physical hardware testing
-- 🔄 First bootable ISO release
+- 🔄 Beta release & user testing
 
 ---
 

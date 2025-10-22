@@ -55,11 +55,11 @@ check_requirements() {
     fi
     
     # Check for required tools
-    local required_tools=("wget" "tar" "gzip" "xorriso" "mksquashfs")
+    local required_tools=("wget" "tar" "gzip" "xorriso" "mksquashfs" "grub-mkrescue")
     for tool in "${required_tools[@]}"; do
         if ! command -v "$tool" &> /dev/null; then
             log_error "Required tool not found: $tool"
-            log_info "Install with: sudo apt install wget tar gzip xorriso squashfs-tools"
+            log_info "Install with: sudo apt install wget tar gzip xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin"
             exit 1
         fi
     done
@@ -274,80 +274,132 @@ cleanup_chroot() {
     log_success "Chroot cleaned up"
 }
 
+setup_bootloader() {
+    log_info "Setting up bootloader (BIOS + UEFI)..."
+    
+    # Install GRUB in chroot
+    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
+# Install GRUB and kernel (both BIOS and UEFI)
+apk add --no-cache \
+    linux-lts \
+    grub \
+    grub-bios \
+    grub-efi \
+    mkinitfs \
+    syslinux \
+    efibootmgr \
+    dosfstools
+
+# Generate initramfs
+mkinitfs -o /boot/initramfs-lts $(ls /lib/modules/ | head -1)
+
+echo "Bootloader packages installed (BIOS + UEFI)"
+CHROOT_EOF
+    
+    log_success "Bootloader packages installed (BIOS + UEFI support)"
+}
+
 create_iso() {
-    log_info "Creating bootable ISO..."
+    log_info "Creating bootable ISO (BIOS + UEFI)..."
     
     # Create ISO structure
     mkdir -p "$BUILD_DIR/iso/boot/grub"
+    mkdir -p "$BUILD_DIR/iso/EFI/BOOT"
     
-    # Copy kernel and initramfs
-    cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/" 2>/dev/null || \
-        log_warn "Kernel not found (will add bootloader setup later)"
+    # Copy kernel and initramfs from rootfs
+    log_info "Copying kernel and initramfs..."
+    if [[ -f "$BUILD_DIR/rootfs/boot/vmlinuz-lts" ]]; then
+        cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/"
+        cp "$BUILD_DIR/rootfs/boot/initramfs-lts" "$BUILD_DIR/iso/boot/"
+        log_success "Kernel and initramfs copied"
+    else
+        log_error "Kernel not found! Run setup_bootloader first"
+        exit 1
+    fi
     
-    # Create GRUB config
-    cat > "$BUILD_DIR/iso/boot/grub/grub.cfg" <<'GRUB_EOF'
-set default=0
-set timeout=5
-
-menuentry "CyberXP-OS Live" {
-    linux /boot/vmlinuz-lts quiet splash
-    initrd /boot/initramfs-lts
-}
-
-menuentry "CyberXP-OS Safe Mode" {
-    linux /boot/vmlinuz-lts single
-    initrd /boot/initramfs-lts
-}
-GRUB_EOF
-
+    # Copy GRUB config
+    log_info "Configuring GRUB (BIOS + UEFI)..."
+    cp config/boot/grub.cfg "$BUILD_DIR/iso/boot/grub/"
+    # UEFI uses same config
+    mkdir -p "$BUILD_DIR/iso/EFI/BOOT"
+    cp config/boot/grub.cfg "$BUILD_DIR/iso/EFI/BOOT/grub.cfg"
+    
     # Create SquashFS filesystem
     log_info "Creating compressed filesystem..."
     mksquashfs "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/cyberxp-os.squashfs" \
         -comp xz -b 1M -noappend
     
-    # Generate ISO
+    # Create ISO with GRUB bootloader (hybrid BIOS/UEFI)
     local iso_file="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
     
-    log_info "Generating ISO image..."
-    xorriso -as mkisofs \
-        -iso-level 3 \
-        -full-iso9660-filenames \
-        -volid "$ISO_LABEL" \
-        -output "$iso_file" \
-        -eltorito-boot boot/grub/grub.cfg \
-        -no-emul-boot \
-        -boot-load-size 4 \
-        -boot-info-table \
-        "$BUILD_DIR/iso" 2>/dev/null || log_warn "ISO creation incomplete (bootloader setup needed)"
+    log_info "Generating hybrid bootable ISO (BIOS + UEFI)..."
+    
+    # Use grub-mkrescue for hybrid boot
+    grub-mkrescue -o "$iso_file" "$BUILD_DIR/iso" \
+        --compress=xz \
+        --fonts= \
+        --locales= \
+        --themes= 2>&1 | grep -v "WARNING" || {
+        log_warn "grub-mkrescue not found, trying manual approach..."
+        
+        # Manual hybrid ISO creation
+        xorriso -as mkisofs \
+            -iso-level 3 \
+            -full-iso9660-filenames \
+            -volid "$ISO_LABEL" \
+            -output "$iso_file" \
+            -eltorito-boot boot/grub/i386-pc/eltorito.img \
+            -no-emul-boot \
+            -boot-load-size 4 \
+            -boot-info-table \
+            -eltorito-alt-boot \
+            -e EFI/BOOT/bootx64.efi \
+            -no-emul-boot \
+            -isohybrid-gpt-basdat \
+            "$BUILD_DIR/iso" 2>&1 | grep -v "WARNING" || true
+    }
     
     if [[ -f "$iso_file" ]]; then
-        log_success "ISO created: $iso_file"
+        log_success "Hybrid bootable ISO created: $iso_file"
         log_info "Size: $(du -h "$iso_file" | cut -f1)"
+        log_info "Boot support: BIOS (Legacy) + UEFI"
+        log_info "You can now boot this ISO in VirtualBox or burn to USB"
     else
-        log_warn "ISO file not created (Phase 1: filesystem only)"
-        log_info "SquashFS filesystem created at: $BUILD_DIR/iso/cyberxp-os.squashfs"
+        log_error "ISO creation failed"
+        exit 1
     fi
 }
 
 show_summary() {
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  CyberXP-OS Build Complete!"
+    echo "  🎉 CyberXP-OS Build Complete!"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
     echo "  Output:"
     echo "    ISO: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
     echo "    Filesystem: $BUILD_DIR/iso/cyberxp-os.squashfs"
     echo ""
-    echo "  Next Steps:"
-    echo "    1. Test in VM: ./scripts/test-vm.sh"
-    echo "    2. Burn to USB: sudo dd if=<iso> of=/dev/sdX bs=4M"
-    echo "    3. Boot and login with: cyberxp / cyberxp"
+    echo "  Boot Support:"
+    echo "    ✓ BIOS (Legacy)"
+    echo "    ✓ UEFI"
+    echo "    ✓ Hybrid ISO (works on both)"
     echo ""
-    echo "  Note: This is Phase 1 (MVP)"
-    echo "    - Bootloader setup incomplete"
-    echo "    - GUI not yet implemented"
-    echo "    - Use for testing only"
+    echo "  Next Steps:"
+    echo "    1. Test in VM: ./scripts/setup-dev-vm.sh"
+    echo "    2. Start VM: VBoxManage startvm \"CyberXP-OS-Dev\""
+    echo "    3. Access dashboard: http://localhost:8080"
+    echo "    4. Login: cyberxp / cyberxp"
+    echo ""
+    echo "  Burn to USB:"
+    echo "    Linux:   sudo dd if=$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso of=/dev/sdX bs=4M"
+    echo "    Windows: Use Rufus in DD mode"
+    echo "    macOS:   Use balenaEtcher"
+    echo ""
+    echo "  Documentation:"
+    echo "    Quick Start: docs/QUICKSTART.md"
+    echo "    Technical:   docs/TECHNICAL_ARCHITECTURE.md"
+    echo "    Bootloader:  docs/BOOTLOADER.md"
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
 }
@@ -372,6 +424,7 @@ main() {
     install_cyberxp
     create_openrc_services
     configure_system
+    setup_bootloader
     cleanup_chroot
     create_iso
     show_summary

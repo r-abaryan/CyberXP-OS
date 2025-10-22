@@ -554,8 +554,6 @@ A: No, we use MIT license. Your contributions are automatically licensed under M
 ## 📞 Contact
 
 - **Project Lead**: [@abaryan](https://github.com/abaryan)
-- **Email**: dev@cyberxp-os.com
-- **Discord**: https://discord.gg/cyberxp
 - **GitHub**: https://github.com/abaryan/CyberXP-OS
 
 ---
