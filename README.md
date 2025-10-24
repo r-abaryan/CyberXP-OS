@@ -209,7 +209,7 @@ cd CyberXP-OS
 # Install build dependencies
 sudo apt install debootstrap squashfs-tools grub-pc-bin grub-efi-amd64-bin xorriso wget tar gzip util-linux
 
-# Build Ubuntu-based ISO (requires root for chroot)
+# Build Ubuntu-based ISO (requires native Linux - not WSL)
 sudo ./scripts/build-ubuntu-iso.sh
 
 # Output: build/output/cyberxp-os-0.1.0-alpha-ubuntu.iso

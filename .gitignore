@@ -61,7 +61,7 @@ secrets/
 # Logs
 *.log
 logs/
-
+build/
 # Keep structure files
 !.gitkeep
 

@@ -71,6 +71,20 @@ check_requirements() {
         exit 1
     fi
     
+    # Check disk space (need at least 8GB)
+    local available_space=$(df "$BUILD_DIR" 2>/dev/null | tail -1 | awk '{print $4}' || echo "0")
+    if [[ $available_space -lt 8388608 ]]; then  # 8GB in KB
+        log_warn "Low disk space detected: $(df -h "$BUILD_DIR" 2>/dev/null | tail -1 | awk '{print $4}' || echo "unknown")"
+        log_warn "Recommended: At least 8GB free space"
+        log_warn "Continuing anyway, but build may fail..."
+    fi
+    
+    # Check network connectivity
+    if ! ping -c 1 archive.ubuntu.com &> /dev/null; then
+        log_warn "Cannot reach archive.ubuntu.com - network issues may cause build failure"
+        log_info "Try: ping archive.ubuntu.com"
+    fi
+    
     log_success "All requirements met"
 }
 
@@ -82,18 +96,23 @@ create_build_dirs() {
 }
 
 download_ubuntu() {
-    log_info "Downloading Ubuntu Server $UBUNTU_VERSION..."
+    log_info "Creating Ubuntu rootfs with debootstrap..."
+    
+    # Clean any previous failed attempts
+    rm -rf "$BUILD_DIR/rootfs" 2>/dev/null || true
+    mkdir -p "$BUILD_DIR/rootfs"
     
     # Use debootstrap to create Ubuntu rootfs
-    log_info "Creating Ubuntu rootfs with debootstrap..."
     debootstrap --arch=amd64 "$UBUNTU_CODENAME" "$BUILD_DIR/rootfs" \
         http://archive.ubuntu.com/ubuntu/ || {
         log_error "Debootstrap failed"
+        log_info "Try: sudo apt update && sudo apt install debootstrap"
         exit 1
     }
     
     log_success "Ubuntu rootfs created"
 }
+
 
 setup_chroot() {
     log_info "Setting up chroot environment..."
@@ -112,6 +131,13 @@ setup_chroot() {
 
 install_base_packages() {
     log_info "Installing base packages..."
+    
+    # Check if we're in WSL and chroot is broken
+    if grep -q Microsoft /proc/version 2>/dev/null && ! chroot "$BUILD_DIR/rootfs" /bin/bash -c "echo test" &>/dev/null; then
+        log_warn "WSL chroot broken - using alternative package installation method"
+        install_packages_wsl_alternative
+        return
+    fi
     
     # Check available disk space
     local available_space=$(df "$BUILD_DIR" | tail -1 | awk '{print $4}')
@@ -223,6 +249,87 @@ CHROOT_EOF
     fi
 
     log_success "CyberXP-OS Dashboard installed to /opt/cyberxp-dashboard"
+}
+
+verify_system_integrity() {
+    log_info "Performing system verification..."
+    
+    # Verify essential system components
+    chroot "$BUILD_DIR/rootfs" /bin/bash <<'VERIFY_EOF'
+echo "=== System Verification ==="
+
+# Check Python and pip
+if ! command -v python3 &> /dev/null; then
+    echo "ERROR: python3 not found"
+    exit 1
+fi
+echo "✓ Python3: $(python3 --version)"
+
+if ! command -v pip3 &> /dev/null; then
+    echo "ERROR: pip3 not found"
+    exit 1
+fi
+echo "✓ pip3: $(pip3 --version)"
+
+# Check Flask installation
+if ! python3 -c "import flask" 2>/dev/null; then
+    echo "ERROR: Flask not installed"
+    exit 1
+fi
+echo "✓ Flask: $(python3 -c 'import flask; print(flask.__version__)')"
+
+# Check dashboard files
+if [ ! -d "/opt/cyberxp-dashboard" ]; then
+    echo "ERROR: Dashboard directory not found"
+    exit 1
+fi
+echo "✓ Dashboard directory exists"
+
+if [ ! -f "/opt/cyberxp-dashboard/app.py" ]; then
+    echo "ERROR: Dashboard app.py not found"
+    exit 1
+fi
+echo "✓ Dashboard app.py exists"
+
+# Test dashboard syntax
+if ! python3 -m py_compile /opt/cyberxp-dashboard/app.py; then
+    echo "ERROR: Dashboard has syntax errors"
+    exit 1
+fi
+echo "✓ Dashboard syntax valid"
+
+# Check systemd service
+if [ ! -f "/etc/systemd/system/cyberxp-dashboard.service" ]; then
+    echo "ERROR: systemd service not found"
+    exit 1
+fi
+echo "✓ systemd service exists"
+
+# Check user exists
+if ! id cyberxp &> /dev/null; then
+    echo "ERROR: cyberxp user not found"
+    exit 1
+fi
+echo "✓ cyberxp user exists"
+
+# Check essential packages
+for pkg in systemd python3-pip curl wget; do
+    if ! dpkg -l | grep -q "^ii.*$pkg "; then
+        echo "ERROR: Package $pkg not installed"
+        exit 1
+    fi
+done
+echo "✓ Essential packages installed"
+
+echo "=== All verification checks passed ==="
+VERIFY_EOF
+
+    if [[ $? -eq 0 ]]; then
+        log_success "System verification passed"
+    else
+        log_error "System verification failed"
+        exit 1
+    fi
 }
 
 create_systemd_services() {
@@ -475,6 +582,7 @@ main() {
     install_cyberxp
     create_systemd_services
     configure_system
+    verify_system_integrity
     setup_bootloader
     cleanup_chroot
     create_iso
