@@ -2,7 +2,7 @@
 
 **The world's first AI-powered defensive security operating system.**
 
-Lightweight Linux distribution with CyberXP AI security agent built-in. Boot, monitor, and defend - no configuration required.
+Ubuntu-based Linux distribution with CyberXP AI security agent built-in. Boot, monitor, and defend - no configuration required.
 
 ---
 
@@ -206,10 +206,13 @@ cd ..
 git clone https://github.com/abaryan/CyberXP
 cd CyberXP-OS
 
-# Build ISO (requires Linux - Ubuntu 22.04+ recommended)
-sudo ./scripts/build-alpine-iso.sh
+# Install build dependencies
+sudo apt install debootstrap squashfs-tools grub-pc-bin grub-efi-amd64-bin xorriso wget tar gzip util-linux
 
-# Output: build/output/cyberxp-os-0.1.0-alpha.iso
+# Build Ubuntu-based ISO (requires root for chroot)
+sudo ./scripts/build-ubuntu-iso.sh
+
+# Output: build/output/cyberxp-os-0.1.0-alpha-ubuntu.iso
 # Time: ~15-20 minutes (depending on internet speed)
 ```
 

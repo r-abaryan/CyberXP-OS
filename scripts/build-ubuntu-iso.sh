@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# CyberXP-OS Alpine Linux ISO Builder
+# CyberXP-OS Ubuntu Server ISO Builder
 # Creates bootable ISO with CyberXP AI security agent pre-installed
 ###############################################################################
 
@@ -14,9 +14,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-ALPINE_VERSION="3.18.4"
-ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine"
-BUILD_DIR="$(pwd)/build/alpine"
+UBUNTU_VERSION="22.04"
+UBUNTU_CODENAME="jammy"
+BUILD_DIR="$(pwd)/build/ubuntu"
 OUTPUT_DIR="$(pwd)/build/output"
 CYBERXP_CORE="../CyberXP"
 
@@ -55,11 +55,11 @@ check_requirements() {
     fi
     
     # Check for required tools
-    local required_tools=("wget" "tar" "gzip" "xorriso" "mksquashfs" "grub-mkrescue" "mount" "umount")
+    local required_tools=("wget" "tar" "gzip" "xorriso" "mksquashfs" "grub-mkrescue" "mount" "umount" "debootstrap" "chroot")
     for tool in "${required_tools[@]}"; do
         if ! command -v "$tool" &> /dev/null; then
             log_error "Required tool not found: $tool"
-            log_info "Install with: sudo apt install wget tar gzip xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin util-linux"
+            log_info "Install with: sudo apt install wget tar gzip xorriso squashfs-tools grub-pc-bin grub-efi-amd64-bin util-linux debootstrap"
             exit 1
         fi
     done
@@ -67,7 +67,7 @@ check_requirements() {
     # Check for root (needed for chroot)
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run as root (for chroot)"
-        log_info "Run with: sudo ./scripts/build-alpine-iso.sh"
+        log_info "Run with: sudo ./scripts/build-ubuntu-iso.sh"
         exit 1
     fi
     
@@ -81,23 +81,18 @@ create_build_dirs() {
     log_success "Build directories created"
 }
 
-download_alpine() {
-    log_info "Downloading Alpine Linux $ALPINE_VERSION..."
+download_ubuntu() {
+    log_info "Downloading Ubuntu Server $UBUNTU_VERSION..."
     
-    local alpine_rootfs="alpine-minirootfs-${ALPINE_VERSION}-x86_64.tar.gz"
-    local download_url="${ALPINE_MIRROR}/v${ALPINE_VERSION%.*}/releases/x86_64/${alpine_rootfs}"
+    # Use debootstrap to create Ubuntu rootfs
+    log_info "Creating Ubuntu rootfs with debootstrap..."
+    debootstrap --arch=amd64 "$UBUNTU_CODENAME" "$BUILD_DIR/rootfs" \
+        http://archive.ubuntu.com/ubuntu/ || {
+        log_error "Debootstrap failed"
+        exit 1
+    }
     
-    if [[ ! -f "$BUILD_DIR/$alpine_rootfs" ]]; then
-        wget -O "$BUILD_DIR/$alpine_rootfs" "$download_url"
-        log_success "Alpine rootfs downloaded"
-    else
-        log_info "Alpine rootfs already downloaded (using cache)"
-    fi
-    
-    # Extract rootfs
-    log_info "Extracting Alpine rootfs..."
-    tar -xzf "$BUILD_DIR/$alpine_rootfs" -C "$BUILD_DIR/rootfs"
-    log_success "Alpine rootfs extracted"
+    log_success "Ubuntu rootfs created"
 }
 
 setup_chroot() {
@@ -107,6 +102,7 @@ setup_chroot() {
     mount --bind /dev "$BUILD_DIR/rootfs/dev"
     mount --bind /proc "$BUILD_DIR/rootfs/proc"
     mount --bind /sys "$BUILD_DIR/rootfs/sys"
+    mount --bind /dev/pts "$BUILD_DIR/rootfs/dev/pts"
     
     # Copy DNS config
     cp /etc/resolv.conf "$BUILD_DIR/rootfs/etc/"
@@ -117,54 +113,67 @@ setup_chroot() {
 install_base_packages() {
     log_info "Installing base packages..."
     
-    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-# Setup Alpine package manager
-echo "http://dl-cdn.alpinelinux.org/alpine/v3.18/main" > /etc/apk/repositories
-echo "http://dl-cdn.alpinelinux.org/alpine/v3.18/community" >> /etc/apk/repositories
-
-# Update package index
-apk update || {
-    echo "ERROR: Failed to update package index"
+    # Check available disk space
+    local available_space=$(df "$BUILD_DIR" | tail -1 | awk '{print $4}')
+    if [[ $available_space -lt 2000000 ]]; then  # Less than 2GB
+        log_error "Insufficient disk space. Need at least 2GB free."
+        exit 1
+    fi
+    
+    chroot "$BUILD_DIR/rootfs" /bin/bash <<'CHROOT_EOF'
+# Update package lists
+apt update || {
+    echo "ERROR: Failed to update package lists"
     exit 1
 }
 
 # Install essential packages
-apk add --no-cache \
-    bash \
-    sudo \
+apt install -y \
     python3 \
-    py3-pip \
-    py3-psutil \
+    python3-pip \
+    python3-psutil \
     git \
     curl \
     wget \
     nano \
     htop \
     net-tools \
-    iproute2 \
     iptables \
-    openssh \
-    doas
+    openssh-server \
+    sudo \
+    systemd \
+    systemd-sysv \
+    grub-pc \
+    grub-efi-amd64 \
+    linux-image-generic \
+    linux-headers-generic \
+    initramfs-tools \
+    squashfs-tools \
+    xorriso \
+    isolinux \
+    syslinux-common \
+    syslinux-efi || {
+    echo "ERROR: Failed to install essential packages"
+    exit 1
+}
 
-# Install system services
-apk add --no-cache \
-    openrc \
-    util-linux \
-    coreutils
-
-# Install security tools (lightweight)
-apk add --no-cache \
+# Install security tools
+apt install -y \
     suricata \
     fail2ban \
     nmap \
-    tcpdump
+    tcpdump \
+    ufw \
+    iptables-persistent || {
+    echo "ERROR: Failed to install security tools"
+    exit 1
+}
 
-# Install additional packages for live boot
-apk add --no-cache \
-    squashfs-tools \
-    loop
+# Clean package cache
+apt clean
+apt autoremove -y
 
-echo "Base packages installed"
+echo "Base packages installed successfully"
 CHROOT_EOF
 
     log_success "Base packages installed"
@@ -187,16 +196,16 @@ install_cyberxp() {
     fi
     
     # Install Python dependencies
-    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
+    chroot "$BUILD_DIR/rootfs" /bin/bash <<'CHROOT_EOF'
 # Install Flask and minimal dependencies for dashboard
-pip3 install --no-cache-dir Flask==3.0.0 Werkzeug==3.0.1 || {
+pip3 install Flask==3.0.0 Werkzeug==3.0.1 || {
     echo "ERROR: Failed to install Flask dependencies"
     exit 1
 }
 
 # Install CyberXP core dependencies if available
 if [ -f /opt/cyberxp/requirements.txt ]; then
-    pip3 install --no-cache-dir -r /opt/cyberxp/requirements.txt || true
+    pip3 install -r /opt/cyberxp/requirements.txt || true
 fi
 
 echo "Dashboard and dependencies installed"
@@ -216,50 +225,58 @@ CHROOT_EOF
     log_success "CyberXP-OS Dashboard installed to /opt/cyberxp-dashboard"
 }
 
-create_openrc_services() {
-    log_info "Creating OpenRC services..."
+create_systemd_services() {
+    log_info "Creating systemd services..."
     
-    # Copy OpenRC init scripts from config
-    cp config/services/cyberxp-agent "$BUILD_DIR/rootfs/etc/init.d/" 2>/dev/null || true
-    chmod +x "$BUILD_DIR/rootfs/etc/init.d/cyberxp-agent" 2>/dev/null || true
-    
-    # Enable services in chroot
-    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-# Enable OpenRC boot services
-rc-update add devfs boot
-rc-update add dmesg boot
-rc-update add mdev boot
-rc-update add hwclock boot
-rc-update add modules boot
+    # Create systemd service file
+    cat > "$BUILD_DIR/rootfs/etc/systemd/system/cyberxp-dashboard.service" << 'EOF'
+[Unit]
+Description=CyberXP-OS Dashboard
+After=network.target
 
-# Enable networking services
-rc-update add hostname boot
-rc-update add networking boot
-rc-update add sshd default
+[Service]
+Type=simple
+User=cyberxp
+Group=cyberxp
+WorkingDirectory=/opt/cyberxp-dashboard
+ExecStart=/usr/bin/python3 /opt/cyberxp-dashboard/app.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=FLASK_APP=app.py
+Environment=FLASK_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Enable services in chroot
+    chroot "$BUILD_DIR/rootfs" /bin/bash <<'CHROOT_EOF'
+# Enable SSH
+systemctl enable ssh
 
 # Enable CyberXP Dashboard
-if [ -f /etc/init.d/cyberxp-agent ]; then
-    chmod +x /etc/init.d/cyberxp-agent
-    rc-update add cyberxp-agent default
+if [ -f /etc/systemd/system/cyberxp-dashboard.service ]; then
+    systemctl enable cyberxp-dashboard
     echo "✓ CyberXP Dashboard enabled for auto-start"
 else
-    echo "⚠ Warning: CyberXP Dashboard init script not found"
+    echo "⚠ Warning: CyberXP Dashboard service not found"
 fi
 
 # Enable security services
-rc-update add iptables default 2>/dev/null || true
-rc-update add fail2ban default 2>/dev/null || true
+systemctl enable ufw
+systemctl enable fail2ban
 
-echo "OpenRC services configured"
+echo "Systemd services configured"
 CHROOT_EOF
 
-    log_success "OpenRC services created and enabled"
+    log_success "Systemd services created and enabled"
 }
 
 configure_system() {
     log_info "Configuring system..."
     
-    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
+    chroot "$BUILD_DIR/rootfs" /bin/bash <<'CHROOT_EOF'
 # Set hostname
 echo "cyberxp-os" > /etc/hostname
 
@@ -267,15 +284,16 @@ echo "cyberxp-os" > /etc/hostname
 echo "root:cyberxp" | chpasswd
 
 # Create cyberxp user
-adduser -D -s /bin/bash cyberxp
+useradd -m -s /bin/bash cyberxp
 echo "cyberxp:cyberxp" | chpasswd
-adduser cyberxp wheel
-
-# Configure sudo
-echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
+usermod -aG sudo cyberxp
 
 # Set timezone to UTC
-ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+timedatectl set-timezone UTC
+
+# Configure SSH
+sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 echo "System configured"
 CHROOT_EOF
@@ -283,71 +301,53 @@ CHROOT_EOF
     log_success "System configuration complete"
 }
 
-cleanup_chroot() {
-    log_info "Cleaning up chroot..."
-    
-    # Clean package cache
-    chroot "$BUILD_DIR/rootfs" /bin/sh -c "rm -rf /var/cache/apk/*"
-    
-    # Unmount filesystems
-    umount "$BUILD_DIR/rootfs/dev" 2>/dev/null || true
-    umount "$BUILD_DIR/rootfs/proc" 2>/dev/null || true
-    umount "$BUILD_DIR/rootfs/sys" 2>/dev/null || true
-    
-    log_success "Chroot cleaned up"
-}
-
 setup_bootloader() {
     log_info "Setting up bootloader (BIOS + UEFI)..."
     
     # Install GRUB in chroot
-    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-# Install GRUB and kernel (both BIOS and UEFI)
-apk add --no-cache \
-    linux-lts \
-    grub \
-    grub-bios \
-    grub-efi \
-    mkinitfs \
-    syslinux \
-    efibootmgr \
-    dosfstools
+    chroot "$BUILD_DIR/rootfs" /bin/bash <<'CHROOT_EOF'
+# Update initramfs
+update-initramfs -u
 
-# Verify kernel installation
-if [ ! -f /boot/vmlinuz-lts ]; then
-    echo "ERROR: Kernel not installed properly"
-    exit 1
-fi
+# Install GRUB
+grub-install --target=i386-pc /dev/loop0 2>/dev/null || true
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu 2>/dev/null || true
 
-# Generate initramfs with proper modules for live boot
-mkinitfs -o /boot/initramfs-lts $(ls /lib/modules/ | head -1)
-
-# Verify initramfs creation
-if [ ! -f /boot/initramfs-lts ]; then
-    echo "ERROR: Initramfs not created properly"
-    exit 1
-fi
-
-# Install GRUB to MBR (for BIOS boot)
-grub-install --target=i386-pc --boot-directory=/boot /dev/loop0 2>/dev/null || true
+# Update GRUB configuration
+update-grub
 
 echo "Bootloader packages installed (BIOS + UEFI)"
-echo "Kernel: $(ls -la /boot/vmlinuz-lts)"
-echo "Initramfs: $(ls -la /boot/initramfs-lts)"
+echo "Kernel: $(ls -la /boot/vmlinuz-*)"
+echo "Initramfs: $(ls -la /boot/initrd.img-*)"
 CHROOT_EOF
     
     # Verify kernel files exist after chroot
-    if [[ ! -f "$BUILD_DIR/rootfs/boot/vmlinuz-lts" ]]; then
+    if [[ ! -f "$BUILD_DIR/rootfs/boot/vmlinuz-"* ]]; then
         log_error "Kernel installation failed in chroot"
         exit 1
     fi
     
-    if [[ ! -f "$BUILD_DIR/rootfs/boot/initramfs-lts" ]]; then
+    if [[ ! -f "$BUILD_DIR/rootfs/boot/initrd.img-"* ]]; then
         log_error "Initramfs creation failed in chroot"
         exit 1
     fi
     
     log_success "Bootloader packages installed (BIOS + UEFI support)"
+}
+
+cleanup_chroot() {
+    log_info "Cleaning up chroot..."
+    
+    # Clean package cache
+    chroot "$BUILD_DIR/rootfs" /bin/bash -c "apt clean && apt autoremove -y"
+    
+    # Unmount filesystems
+    umount "$BUILD_DIR/rootfs/dev/pts" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/dev" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/proc" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/sys" 2>/dev/null || true
+    
+    log_success "Chroot cleaned up"
 }
 
 create_iso() {
@@ -359,9 +359,9 @@ create_iso() {
     
     # Copy kernel and initramfs from rootfs
     log_info "Copying kernel and initramfs..."
-    if [[ -f "$BUILD_DIR/rootfs/boot/vmlinuz-lts" ]]; then
-        cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/"
-        cp "$BUILD_DIR/rootfs/boot/initramfs-lts" "$BUILD_DIR/iso/boot/"
+    if ls "$BUILD_DIR/rootfs/boot/vmlinuz-"* 1> /dev/null 2>&1; then
+        cp "$BUILD_DIR/rootfs/boot/vmlinuz-"* "$BUILD_DIR/iso/boot/"
+        cp "$BUILD_DIR/rootfs/boot/initrd.img-"* "$BUILD_DIR/iso/boot/"
         log_success "Kernel and initramfs copied"
     else
         log_error "Kernel not found! Run setup_bootloader first"
@@ -381,7 +381,7 @@ create_iso() {
     cp config/boot/grub.cfg "$BUILD_DIR/iso/EFI/BOOT/grub.cfg"
     
     # Create ISO with GRUB bootloader (hybrid BIOS/UEFI)
-    local iso_file="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    local iso_file="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}-ubuntu.iso"
     
     log_info "Generating hybrid bootable ISO (BIOS + UEFI)..."
     
@@ -424,11 +424,11 @@ create_iso() {
 show_summary() {
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  🎉 CyberXP-OS Build Complete!"
+    echo "  🎉 CyberXP-OS Ubuntu Build Complete!"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
     echo "  Output:"
-    echo "    ISO: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    echo "    ISO: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}-ubuntu.iso"
     echo "    Filesystem: $BUILD_DIR/iso/cyberxp-os.squashfs"
     echo ""
     echo "  Boot Support:"
@@ -443,7 +443,7 @@ show_summary() {
     echo "    4. Login: cyberxp / cyberxp"
     echo ""
     echo "  Burn to USB:"
-    echo "    Linux:   sudo dd if=$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso of=/dev/sdX bs=4M"
+    echo "    Linux:   sudo dd if=$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}-ubuntu.iso of=/dev/sdX bs=4M"
     echo "    Windows: Use Rufus in DD mode"
     echo "    macOS:   Use balenaEtcher"
     echo ""
@@ -462,18 +462,18 @@ show_summary() {
 main() {
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  CyberXP-OS Alpine Linux ISO Builder"
+    echo "  CyberXP-OS Ubuntu Server ISO Builder"
     echo "  Version: $ISO_VERSION"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
     
     check_requirements
     create_build_dirs
-    download_alpine
+    download_ubuntu
     setup_chroot
     install_base_packages
     install_cyberxp
-    create_openrc_services
+    create_systemd_services
     configure_system
     setup_bootloader
     cleanup_chroot
@@ -483,4 +483,3 @@ main() {
 
 # Run main function
 main "$@"
-

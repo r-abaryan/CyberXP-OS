@@ -18,7 +18,14 @@ if ($LASTEXITCODE -ne 0) {
 $ISO_FILE = "build\output\cyberxp-os-*.iso"
 if (-not (Test-Path $ISO_FILE)) {
     Write-Host "Error: No ISO found in build\output\" -ForegroundColor Red
-    Write-Host "Build the ISO first with: sudo ./scripts/quick-rebuild.sh" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Possible solutions:" -ForegroundColor Yellow
+    Write-Host "  1. Build the ISO first: sudo ./scripts/quick-rebuild.sh" -ForegroundColor Gray
+    Write-Host "  2. Check if ISO exists: ls build/output/" -ForegroundColor Gray
+    Write-Host "  3. Manual copy: Copy ISO from WSL to Windows build\output\" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "WSL ISO location: /mnt/d/AI-ML/CyberXP-OS/build/output/" -ForegroundColor Cyan
+    Write-Host "Windows ISO location: D:\AI-ML\CyberXP-OS\build\output\" -ForegroundColor Cyan
     exit 1
 }
 
@@ -40,11 +47,18 @@ Write-Host "══════════════════════�
 Write-Host ""
 Write-Host "  VM: $VM_NAME" -ForegroundColor White
 Write-Host "  ISO: $ISO_PATH" -ForegroundColor Gray
+Write-Host "  ISO Size: $((Get-Item $ISO_PATH).Length / 1MB) MB" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  Start VM to test:" -ForegroundColor White
 Write-Host "    & `$VBoxManage startvm `"$VM_NAME`"" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  The GRUB configuration has been fixed with proper root= parameters" -ForegroundColor Green
-Write-Host "  This should resolve the initramfs shell issue" -ForegroundColor Green
+Write-Host "  What was fixed:" -ForegroundColor Green
+Write-Host "    ✓ Added root=live:LABEL=CYBERXP-OS to GRUB config" -ForegroundColor Green
+Write-Host "    ✓ This tells kernel where to find root filesystem" -ForegroundColor Green
+Write-Host "    ✓ Should resolve 'initramfs shell' boot issue" -ForegroundColor Green
+Write-Host ""
+Write-Host "  If still having issues, try different GRUB menu options:" -ForegroundColor Yellow
+Write-Host "    - CyberXP-OS (Verbose Mode) - shows boot messages" -ForegroundColor Gray
+Write-Host "    - CyberXP-OS (Safe Mode) - single user mode" -ForegroundColor Gray
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan

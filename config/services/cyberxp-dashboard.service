@@ -1,0 +1,18 @@
+[Unit]
+Description=CyberXP-OS Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=cyberxp
+Group=cyberxp
+WorkingDirectory=/opt/cyberxp-dashboard
+ExecStart=/usr/bin/python3 /opt/cyberxp-dashboard/app.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=FLASK_APP=app.py
+Environment=FLASK_ENV=production
+
+[Install]
+WantedBy=multi-user.target
