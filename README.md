@@ -2,7 +2,7 @@
 
 **The world's first AI-powered defensive security operating system.**
 
-Ubuntu-based Linux distribution with CyberXP AI security agent built-in. Boot, monitor, and defend - no configuration required.
+Ubuntu 24.04-based Linux distribution with CyberXP AI security agent built-in. Boot, monitor, and defend - no configuration required.
 
 ---
 

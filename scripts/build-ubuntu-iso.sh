@@ -14,8 +14,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-UBUNTU_VERSION="22.04"
-UBUNTU_CODENAME="jammy"
+UBUNTU_VERSION="24.04"
+UBUNTU_CODENAME="noble"
 BUILD_DIR="$(pwd)/build/ubuntu"
 OUTPUT_DIR="$(pwd)/build/output"
 CYBERXP_CORE="../CyberXP"
@@ -102,7 +102,7 @@ download_ubuntu() {
     rm -rf "$BUILD_DIR/rootfs" 2>/dev/null || true
     mkdir -p "$BUILD_DIR/rootfs"
     
-    # Use debootstrap to create Ubuntu rootfs
+    # Use debootstrap to create Ubuntu rootfs (minimal first, then add packages)
     debootstrap --arch=amd64 "$UBUNTU_CODENAME" "$BUILD_DIR/rootfs" \
         http://archive.ubuntu.com/ubuntu/ || {
         log_error "Debootstrap failed"
@@ -117,11 +117,18 @@ download_ubuntu() {
 setup_chroot() {
     log_info "Setting up chroot environment..."
     
+    # Create essential directories
+    mkdir -p "$BUILD_DIR/rootfs/dev/pts"
+    mkdir -p "$BUILD_DIR/rootfs/proc"
+    mkdir -p "$BUILD_DIR/rootfs/sys"
+    
     # Mount essential filesystems
     mount --bind /dev "$BUILD_DIR/rootfs/dev"
     mount --bind /proc "$BUILD_DIR/rootfs/proc"
     mount --bind /sys "$BUILD_DIR/rootfs/sys"
-    mount --bind /dev/pts "$BUILD_DIR/rootfs/dev/pts"
+    
+    # Mount devpts for PTY support
+    mount -t devpts devpts "$BUILD_DIR/rootfs/dev/pts" -o newinstance,ptmxmode=0666,mode=0620
     
     # Copy DNS config
     cp /etc/resolv.conf "$BUILD_DIR/rootfs/etc/"
@@ -147,17 +154,23 @@ install_base_packages() {
     fi
     
     chroot "$BUILD_DIR/rootfs" /bin/bash <<'CHROOT_EOF'
-# Update package lists
+# Install GPG tools first (required for package verification)
+apt install -y --allow-unauthenticated gpgv gnupg ca-certificates || {
+    echo "ERROR: Cannot install GPG tools"
+    exit 1
+}
+
+# Now update package lists
 apt update || {
     echo "ERROR: Failed to update package lists"
     exit 1
 }
 
-# Install essential packages
+# Install essential packages for Ubuntu 24.04 (FIXED PACKAGE LIST)
 apt install -y \
     python3 \
-    python3-pip \
     python3-psutil \
+    python3-pip \
     git \
     curl \
     wget \
@@ -166,26 +179,30 @@ apt install -y \
     net-tools \
     iptables \
     openssh-server \
-    sudo \
     systemd \
     systemd-sysv \
-    grub-pc \
     grub-efi-amd64 \
     linux-image-generic \
     linux-headers-generic \
     initramfs-tools \
     squashfs-tools \
     xorriso \
-    isolinux \
-    syslinux-common \
-    syslinux-efi || {
+    mtools \
+    efibootmgr \
+    dosfstools \
+    locales \
+    live-boot \
+    live-boot-initramfs-tools \
+    live-config \
+    live-config-systemd || {
     echo "ERROR: Failed to install essential packages"
     exit 1
 }
 
+# pip3 is now installed via python3-pip package above
+
 # Install security tools
 apt install -y \
-    suricata \
     fail2ban \
     nmap \
     tcpdump \
@@ -335,7 +352,7 @@ VERIFY_EOF
 create_systemd_services() {
     log_info "Creating systemd services..."
     
-    # Create systemd service file
+    # Create systemd service file (FIXED - uses root user for simplicity)
     cat > "$BUILD_DIR/rootfs/etc/systemd/system/cyberxp-dashboard.service" << 'EOF'
 [Unit]
 Description=CyberXP-OS Dashboard
@@ -343,8 +360,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=cyberxp
-Group=cyberxp
+User=root
+Group=root
 WorkingDirectory=/opt/cyberxp-dashboard
 ExecStart=/usr/bin/python3 /opt/cyberxp-dashboard/app.py
 Restart=always
@@ -393,10 +410,10 @@ echo "root:cyberxp" | chpasswd
 # Create cyberxp user
 useradd -m -s /bin/bash cyberxp
 echo "cyberxp:cyberxp" | chpasswd
-usermod -aG sudo cyberxp
 
 # Set timezone to UTC
-timedatectl set-timezone UTC
+echo "UTC" > /etc/timezone
+ln -sf /usr/share/zoneinfo/UTC /etc/localtime
 
 # Configure SSH
 sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -460,32 +477,47 @@ cleanup_chroot() {
 create_iso() {
     log_info "Creating bootable ISO (BIOS + UEFI)..."
     
-    # Create ISO structure
+    # Create ISO structure for live boot
+    mkdir -p "$BUILD_DIR/iso/casper"
     mkdir -p "$BUILD_DIR/iso/boot/grub"
     mkdir -p "$BUILD_DIR/iso/EFI/BOOT"
     
     # Copy kernel and initramfs from rootfs
     log_info "Copying kernel and initramfs..."
     if ls "$BUILD_DIR/rootfs/boot/vmlinuz-"* 1> /dev/null 2>&1; then
-        cp "$BUILD_DIR/rootfs/boot/vmlinuz-"* "$BUILD_DIR/iso/boot/"
-        cp "$BUILD_DIR/rootfs/boot/initrd.img-"* "$BUILD_DIR/iso/boot/"
+        cp "$BUILD_DIR/rootfs/boot/vmlinuz-"* "$BUILD_DIR/iso/casper/"
+        cp "$BUILD_DIR/rootfs/boot/initrd.img-"* "$BUILD_DIR/iso/casper/"
         log_success "Kernel and initramfs copied"
     else
         log_error "Kernel not found! Run setup_bootloader first"
         exit 1
     fi
     
-    # Create SquashFS filesystem first
+    # Create SquashFS filesystem for live boot
     log_info "Creating compressed filesystem..."
-    mksquashfs "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/cyberxp-os.squashfs" \
+    mksquashfs "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/casper/filesystem.squashfs" \
         -comp xz -b 1M -noappend
     
-    # Copy GRUB config with proper live boot parameters
+    # Create GRUB config with proper live boot parameters (FIXED)
     log_info "Configuring GRUB (BIOS + UEFI)..."
-    cp config/boot/grub.cfg "$BUILD_DIR/iso/boot/grub/"
-    # UEFI uses same config
+    cat > "$BUILD_DIR/iso/boot/grub/grub.cfg" << 'EOF'
+set timeout=10
+set default=0
+
+menuentry "CyberXP-OS" {
+    linux /casper/vmlinuz boot=casper quiet splash root=live:LABEL=CYBERXP-OS
+    initrd /casper/initrd.img
+}
+
+menuentry "CyberXP-OS (Recovery)" {
+    linux /casper/vmlinuz boot=casper quiet splash root=live:LABEL=CYBERXP-OS init=/bin/bash
+    initrd /casper/initrd.img
+}
+EOF
+    
+    # Copy GRUB config to UEFI location
     mkdir -p "$BUILD_DIR/iso/EFI/BOOT"
-    cp config/boot/grub.cfg "$BUILD_DIR/iso/EFI/BOOT/grub.cfg"
+    cp "$BUILD_DIR/iso/boot/grub/grub.cfg" "$BUILD_DIR/iso/EFI/BOOT/grub.cfg"
     
     # Create ISO with GRUB bootloader (hybrid BIOS/UEFI)
     local iso_file="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}-ubuntu.iso"
@@ -563,18 +595,36 @@ show_summary() {
 }
 
 ###############################################################################
+# Cleanup function
+###############################################################################
+
+cleanup() {
+    log_info "Cleaning up..."
+    # Unmount in reverse order
+    umount "$BUILD_DIR/rootfs/dev/pts" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/dev" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/proc" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/sys" 2>/dev/null || true
+    log_success "Cleanup complete"
+}
+
+###############################################################################
 # Main Build Process
 ###############################################################################
 
 main() {
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  CyberXP-OS Ubuntu Server ISO Builder"
+    echo "  CyberXP-OS Ubuntu Server ISO Builder - FIXED VERSION"
     echo "  Version: $ISO_VERSION"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
     
     check_requirements
+    
+    # Set up cleanup trap
+    trap cleanup EXIT INT TERM
+    
     create_build_dirs
     download_ubuntu
     setup_chroot
