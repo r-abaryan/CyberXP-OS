@@ -23,7 +23,7 @@ CYBERXP_CORE="../CyberXP"
 # ISO Details
 ISO_NAME="cyberxp-os"
 ISO_VERSION="0.1.0-alpha"
-ISO_LABEL="CyberXP-OS"
+ISO_LABEL="CYBERXP-OS"
 
 ###############################################################################
 # Helper Functions
@@ -299,6 +299,12 @@ apk add --no-cache \
 # Generate initramfs
 mkinitfs -o /boot/initramfs-lts $(ls /lib/modules/ | head -1)
 
+# Build modloop (squashfs of kernel modules) expected by Alpine initramfs
+KVER=$(ls /lib/modules/ | head -1)
+if [ -n "$KVER" ] && [ -d "/lib/modules/$KVER" ]; then
+    mksquashfs "/lib/modules/$KVER" "/boot/modloop-lts" -comp xz -b 1M -noappend
+fi
+
 echo "Bootloader packages installed (BIOS + UEFI)"
 CHROOT_EOF
     
@@ -317,6 +323,10 @@ create_iso() {
     if [[ -f "$BUILD_DIR/rootfs/boot/vmlinuz-lts" ]]; then
         cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/"
         cp "$BUILD_DIR/rootfs/boot/initramfs-lts" "$BUILD_DIR/iso/boot/"
+        # Optional but recommended for Alpine live: modloop with kernel modules
+        if [[ -f "$BUILD_DIR/rootfs/boot/modloop-lts" ]]; then
+            cp "$BUILD_DIR/rootfs/boot/modloop-lts" "$BUILD_DIR/iso/boot/"
+        fi
         log_success "Kernel and initramfs copied"
     else
         log_error "Kernel not found! Run setup_bootloader first"
@@ -325,7 +335,7 @@ create_iso() {
     
     # Generate GRUB config tailored for Alpine kernel names
     log_info "Configuring GRUB (BIOS + UEFI)..."
-    cat > "$BUILD_DIR/iso/boot/grub/grub.cfg" <<GRUBCFG
+cat > "$BUILD_DIR/iso/boot/grub/grub.cfg" <<GRUBCFG
 set timeout=5
 set default=0
 
@@ -333,17 +343,17 @@ set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
 
 menuentry "CyberXP-OS (Alpine)" {
-    linux /boot/vmlinuz-lts root=/dev/ram0 quiet
+    linux /boot/vmlinuz-lts root=/dev/ram0 modules=loop,squashfs,sd-mod,usb-storage alpine_dev=LABEL=CYBERXP-OS alpine_repo=$ALPINE_MIRROR/v${ALPINE_VERSION%.*}/main modloop=/boot/modloop-lts quiet
     initrd /boot/initramfs-lts
 }
 
 menuentry "CyberXP-OS (Verbose)" {
-    linux /boot/vmlinuz-lts root=/dev/ram0 console=tty0
+    linux /boot/vmlinuz-lts root=/dev/ram0 modules=loop,squashfs,sd-mod,usb-storage alpine_dev=LABEL=CYBERXP-OS alpine_repo=$ALPINE_MIRROR/v${ALPINE_VERSION%.*}/main modloop=/boot/modloop-lts console=tty0
     initrd /boot/initramfs-lts
 }
 
 menuentry "CyberXP-OS (Recovery Shell)" {
-    linux /boot/vmlinuz-lts root=/dev/ram0 init=/bin/sh
+    linux /boot/vmlinuz-lts root=/dev/ram0 modules=loop,squashfs,sd-mod,usb-storage alpine_dev=LABEL=CYBERXP-OS alpine_repo=$ALPINE_MIRROR/v${ALPINE_VERSION%.*}/main modloop=/boot/modloop-lts init=/bin/sh
     initrd /boot/initramfs-lts
 }
 GRUBCFG
