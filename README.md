@@ -59,19 +59,6 @@ sudo dd if=cyberxp-os-v1.0.iso of=/dev/sdX bs=4M
 # Or use Rufus/Etcher on Windows/Mac
 ```
 
-### Run in VM
-
-```bash
-# VirtualBox
-VBoxManage createvm --name "CyberXP-OS" --ostype "Linux_64" --register
-VBoxManage modifyvm "CyberXP-OS" --memory 4096 --cpus 2
-VBoxManage storagectl "CyberXP-OS" --name "SATA" --add sata
-VBoxManage storageattach "CyberXP-OS" --storagectl "SATA" \
-  --port 0 --device 0 --type dvddrive --medium cyberxp-os-v1.0.iso
-VBoxManage startvm "CyberXP-OS"
-```
-
----
 
 ## System Requirements
 
@@ -350,13 +337,6 @@ Built on the shoulders of giants:
 
 ---
 
-## 📞 Contact & Support
-
-- **GitHub**: https://github.com/abaryan/CyberXP-OS
-
----
-
----
 
 ## 📊 Current Status
 
@@ -386,5 +366,5 @@ Built on the shoulders of giants:
 
 **Last Updated**: October 21, 2025  
 **License**: MIT License  
-**Built with ❤️ for the security community**
+**Built for the security community**
 

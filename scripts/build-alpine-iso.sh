@@ -323,12 +323,34 @@ create_iso() {
         exit 1
     fi
     
-    # Copy GRUB config
+    # Generate GRUB config tailored for Alpine kernel names
     log_info "Configuring GRUB (BIOS + UEFI)..."
-    cp config/boot/grub.cfg "$BUILD_DIR/iso/boot/grub/"
-    # UEFI uses same config
+    cat > "$BUILD_DIR/iso/boot/grub/grub.cfg" <<GRUBCFG
+set timeout=5
+set default=0
+
+set menu_color_normal=white/black
+set menu_color_highlight=black/light-gray
+
+menuentry "CyberXP-OS (Alpine)" {
+    linux /boot/vmlinuz-lts root=/dev/ram0 quiet
+    initrd /boot/initramfs-lts
+}
+
+menuentry "CyberXP-OS (Verbose)" {
+    linux /boot/vmlinuz-lts root=/dev/ram0 console=tty0
+    initrd /boot/initramfs-lts
+}
+
+menuentry "CyberXP-OS (Recovery Shell)" {
+    linux /boot/vmlinuz-lts root=/dev/ram0 init=/bin/sh
+    initrd /boot/initramfs-lts
+}
+GRUBCFG
+
+    # UEFI fallback config (same entries)
     mkdir -p "$BUILD_DIR/iso/EFI/BOOT"
-    cp config/boot/grub.cfg "$BUILD_DIR/iso/EFI/BOOT/grub.cfg"
+    cp "$BUILD_DIR/iso/boot/grub/grub.cfg" "$BUILD_DIR/iso/EFI/BOOT/grub.cfg"
     
     # Create SquashFS filesystem
     log_info "Creating compressed filesystem..."
