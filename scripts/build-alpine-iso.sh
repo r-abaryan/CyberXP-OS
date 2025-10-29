@@ -1,7 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# CyberXP-OS Alpine Linux ISO Builder (FIXED v3 - Black Screen Fix)
-# Creates bootable ISO with proper video and console support
+# CyberXP-OS Alpine Linux ISO Builder (FIXED v4 - Network & Boot Fix)
+# Creates bootable ISO with proper network and bootloader setup
 ###############################################################################
 
 set -e  # Exit on error
@@ -23,7 +23,7 @@ CYBERXP_CORE="../CyberXP"
 # ISO Details
 ISO_NAME="cyberxp-os"
 ISO_VERSION="0.1.0-alpha"
-ISO_LABEL="CYBERXP-OS"
+ISO_LABEL="CYBERXP_OS"  # No dashes - ISO 9660 compliance
 
 ###############################################################################
 # Helper Functions
@@ -53,7 +53,7 @@ check_requirements() {
         exit 1
     fi
     
-    local required_tools=("wget" "tar" "gzip" "xorriso" "mksquashfs" "syslinux")
+    local required_tools=("wget" "tar" "gzip" "xorriso" "mksquashfs")
     for tool in "${required_tools[@]}"; do
         if ! command -v "$tool" &> /dev/null; then
             log_error "Required tool not found: $tool"
@@ -62,9 +62,23 @@ check_requirements() {
         fi
     done
     
+    # Check for SYSLINUX files
+    if [[ ! -f "/usr/lib/ISOLINUX/isolinux.bin" ]] && [[ ! -f "/usr/lib/syslinux/modules/bios/isolinux.bin" ]]; then
+        log_error "SYSLINUX not found"
+        log_info "Install with: sudo apt install syslinux isolinux"
+        exit 1
+    fi
+    
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run as root (for chroot)"
         log_info "Run with: sudo ./scripts/build-alpine-iso.sh"
+        exit 1
+    fi
+    
+    # Test network connectivity
+    if ! ping -c 1 8.8.8.8 &> /dev/null; then
+        log_error "No internet connection detected"
+        log_info "Please check your network connection"
         exit 1
     fi
     
@@ -73,6 +87,7 @@ check_requirements() {
 
 create_build_dirs() {
     log_info "Creating build directories..."
+    rm -rf "$BUILD_DIR/iso" "$BUILD_DIR/temp"
     mkdir -p "$BUILD_DIR"/{rootfs,iso,temp}
     mkdir -p "$OUTPUT_DIR"
     log_success "Build directories created"
@@ -100,11 +115,25 @@ download_alpine() {
 setup_chroot() {
     log_info "Setting up chroot environment..."
     
-    mount --bind /dev "$BUILD_DIR/rootfs/dev" 2>/dev/null || true
-    mount --bind /proc "$BUILD_DIR/rootfs/proc" 2>/dev/null || true
-    mount --bind /sys "$BUILD_DIR/rootfs/sys" 2>/dev/null || true
+    # Unmount if already mounted
+    umount "$BUILD_DIR/rootfs/dev" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/proc" 2>/dev/null || true
+    umount "$BUILD_DIR/rootfs/sys" 2>/dev/null || true
     
-    cp /etc/resolv.conf "$BUILD_DIR/rootfs/etc/"
+    # Mount essential filesystems
+    mount --bind /dev "$BUILD_DIR/rootfs/dev"
+    mount --bind /proc "$BUILD_DIR/rootfs/proc"
+    mount --bind /sys "$BUILD_DIR/rootfs/sys"
+    
+    # CRITICAL: Copy DNS config for network access
+    cp -L /etc/resolv.conf "$BUILD_DIR/rootfs/etc/resolv.conf"
+    
+    # Ensure DNS is working
+    if ! chroot "$BUILD_DIR/rootfs" /bin/sh -c "ping -c 1 dl-cdn.alpinelinux.org" &> /dev/null; then
+        log_warn "DNS not working in chroot, using Google DNS"
+        echo "nameserver 8.8.8.8" > "$BUILD_DIR/rootfs/etc/resolv.conf"
+        echo "nameserver 8.8.4.4" >> "$BUILD_DIR/rootfs/etc/resolv.conf"
+    fi
     
     log_success "Chroot environment ready"
 }
@@ -113,20 +142,38 @@ install_base_packages() {
     log_info "Installing base packages..."
     
     chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-echo "http://dl-cdn.alpinelinux.org/alpine/v3.18/main" > /etc/apk/repositories
-echo "http://dl-cdn.alpinelinux.org/alpine/v3.18/community" >> /etc/apk/repositories
+set -e
 
-apk update
+# Configure Alpine repositories
+cat > /etc/apk/repositories <<'REPOS_EOF'
+http://dl-cdn.alpinelinux.org/alpine/v3.18/main
+http://dl-cdn.alpinelinux.org/alpine/v3.18/community
+REPOS_EOF
 
-# CRITICAL: Install these first for proper boot
+# Test network connectivity
+echo "Testing network connectivity..."
+if ! ping -c 1 dl-cdn.alpinelinux.org; then
+    echo "ERROR: Cannot reach Alpine mirrors!"
+    exit 1
+fi
+
+# Update package index with retry
+echo "Updating package index..."
+apk update || (sleep 5 && apk update) || (sleep 10 && apk update)
+
+# Install base packages
+echo "Installing Alpine base system..."
 apk add --no-cache \
     alpine-base \
     alpine-conf \
     openrc \
     busybox \
-    busybox-initscripts
+    busybox-openrc \
+    busybox-mdev-openrc \
+    busybox-extras-openrc
 
-# Essential system packages
+# Install essential tools
+echo "Installing essential packages..."
 apk add --no-cache \
     bash \
     sudo \
@@ -140,17 +187,17 @@ apk add --no-cache \
     net-tools \
     iproute2 \
     iptables \
-    openssh \
-    doas
+    openssh
 
-# Utilities
+# Install utilities
+echo "Installing utilities..."
 apk add --no-cache \
     util-linux \
     coreutils \
     nmap \
     tcpdump
 
-echo "Base packages installed"
+echo "✓ Base packages installed successfully"
 CHROOT_EOF
 
     log_success "Base packages installed"
@@ -161,86 +208,111 @@ install_cyberxp() {
     
     mkdir -p "$BUILD_DIR/rootfs/opt/cyberxp-dashboard"
     
-    if [[ ! -d "config/desktop/cyberxp-dashboard" ]]; then
-        log_warn "Dashboard config not found, creating minimal version..."
-        cat > "$BUILD_DIR/rootfs/opt/cyberxp-dashboard/app.py" <<'PYEOF'
-from flask import Flask
+    # Create minimal dashboard
+    cat > "$BUILD_DIR/rootfs/opt/cyberxp-dashboard/app.py" <<'PYEOF'
+from flask import Flask, render_template_string
 app = Flask(__name__)
+
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CyberXP-OS Dashboard</title>
+    <style>
+        body { font-family: Arial; background: #1a1a1a; color: #0f0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { border-bottom: 2px solid #0f0; padding-bottom: 10px; }
+        .status { background: #2a2a2a; padding: 15px; margin: 10px 0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ CyberXP-OS Dashboard</h1>
+        <div class="status">
+            <h2>System Status: RUNNING</h2>
+            <p>Mode: Live (Diskless)</p>
+            <p>Version: 0.1.0-alpha</p>
+        </div>
+        <div class="status">
+            <h3>Quick Start:</h3>
+            <ul>
+                <li>Network setup: <code>setup-interfaces</code></li>
+                <li>Install to disk: <code>setup-alpine</code></li>
+                <li>Package manager: <code>apk add &lt;package&gt;</code></li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+"""
 
 @app.route('/')
 def home():
-    return '<h1>CyberXP-OS Dashboard</h1><p>System running in live mode</p>'
+    return render_template_string(HTML)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=8080, debug=False)
 PYEOF
-    else
-        cp -r config/desktop/cyberxp-dashboard/* "$BUILD_DIR/rootfs/opt/cyberxp-dashboard/"
-    fi
     
+    # Copy CyberXP core if available
     if [[ -d "$CYBERXP_CORE" ]]; then
         log_info "Installing CyberXP core..."
         mkdir -p "$BUILD_DIR/rootfs/opt/cyberxp"
-        cp -r "$CYBERXP_CORE"/* "$BUILD_DIR/rootfs/opt/cyberxp/"
+        cp -r "$CYBERXP_CORE"/* "$BUILD_DIR/rootfs/opt/cyberxp/" 2>/dev/null || true
     fi
     
+    # Install Python dependencies
     chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-pip3 install --break-system-packages --no-cache-dir Flask==3.0.0 Werkzeug==3.0.1 2>/dev/null || \
-pip3 install --no-cache-dir Flask==3.0.0 Werkzeug==3.0.1
+pip3 install --break-system-packages --no-cache-dir Flask 2>/dev/null || \
+pip3 install --no-cache-dir Flask
 
 if [ -f /opt/cyberxp/requirements.txt ]; then
     pip3 install --break-system-packages --no-cache-dir -r /opt/cyberxp/requirements.txt 2>/dev/null || \
     pip3 install --no-cache-dir -r /opt/cyberxp/requirements.txt || true
 fi
+
+echo "✓ Dashboard installed"
 CHROOT_EOF
 
     log_success "CyberXP-OS Dashboard installed"
 }
 
 configure_system() {
-    log_info "Configuring system for live mode..."
+    log_info "Configuring system..."
     
     chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-# Set hostname
+# Hostname
 echo "cyberxp-os" > /etc/hostname
 
-# Configure root password
+# Passwords
 echo "root:cyberxp" | chpasswd
-
-# Create cyberxp user
-adduser -D -s /bin/bash cyberxp || true
+adduser -D -s /bin/bash cyberxp 2>/dev/null || true
 echo "cyberxp:cyberxp" | chpasswd
-adduser cyberxp wheel || true
 
-# Configure sudo
+# Sudo
 mkdir -p /etc/sudoers.d
-echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
+echo "cyberxp ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/cyberxp
 
-# Set timezone
-ln -sf /usr/share/zoneinfo/UTC /etc/localtime
-
-# Create welcome message
+# MOTD
 cat > /etc/motd <<'MOTD_EOF'
 
-╔══════════════════════════════════════════════════════════════╗
-║                    CyberXP-OS Live System                    ║
-║                  AI-Powered Security Analysis                ║
-╚══════════════════════════════════════════════════════════════╝
-
-Welcome to CyberXP-OS v0.1.0-alpha (Live Mode)
+═══════════════════════════════════════════════════════════
+    CyberXP-OS v0.1.0-alpha - Live System
+    AI-Powered Security Analysis Platform
+═══════════════════════════════════════════════════════════
 
 Login: root / cyberxp (password: cyberxp)
 
 Quick Start:
-  • Start dashboard: python3 /opt/cyberxp-dashboard/app.py &
-  • Network setup:   setup-interfaces
-  • Install system:  setup-alpine
+  • Dashboard:  python3 /opt/cyberxp-dashboard/app.py &
+  • Network:    setup-interfaces
+  • Install:    setup-alpine
 
-Docs: https://github.com/r-abaryan/CyberXP-OS
+GitHub: https://github.com/r-abaryan/CyberXP-OS
 
 MOTD_EOF
 
-# Configure OpenRC runlevels (minimal for live boot)
+# OpenRC services
 rc-update add devfs sysinit
 rc-update add dmesg sysinit
 rc-update add hwclock boot
@@ -248,159 +320,145 @@ rc-update add modules boot
 rc-update add sysctl boot
 rc-update add hostname boot
 rc-update add bootmisc boot
-rc-update add syslog boot 2>/dev/null || rc-update add busybox-syslog boot
+rc-update add syslog boot 2>/dev/null || rc-update add busybox-syslog default
 
-echo "System configured for live mode"
+echo "✓ System configured"
 CHROOT_EOF
 
-    log_success "System configuration complete"
+    log_success "System configured"
+}
+
+setup_bootloader() {
+    log_info "Installing kernel and bootloader..."
+    
+    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
+apk add --no-cache linux-lts linux-firmware mkinitfs
+
+# Generate initramfs
+KVER=$(ls /lib/modules/ | head -1)
+if [ -n "$KVER" ]; then
+    mkinitfs -o /boot/initramfs-lts $KVER
+    echo "✓ Initramfs generated for $KVER"
+fi
+CHROOT_EOF
+    
+    log_success "Kernel installed"
 }
 
 cleanup_chroot() {
     log_info "Cleaning up chroot..."
     
-    chroot "$BUILD_DIR/rootfs" /bin/sh -c "rm -rf /var/cache/apk/*" || true
+    chroot "$BUILD_DIR/rootfs" /bin/sh -c "rm -rf /var/cache/apk/* /tmp/*" || true
     
     umount "$BUILD_DIR/rootfs/dev" 2>/dev/null || true
     umount "$BUILD_DIR/rootfs/proc" 2>/dev/null || true
     umount "$BUILD_DIR/rootfs/sys" 2>/dev/null || true
     
-    log_success "Chroot cleaned up"
-}
-
-setup_bootloader() {
-    log_info "Setting up bootloader packages..."
-    
-    chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-apk add --no-cache \
-    linux-lts \
-    linux-firmware \
-    mkinitfs
-
-# Generate initramfs with essential modules
-KVER=$(ls /lib/modules/ | head -1)
-if [ -n "$KVER" ]; then
-    # Add essential features to initramfs
-    cat >> /etc/mkinitfs/mkinitfs.conf <<'INITFS_EOF'
-features="ata base ide scsi usb virtio"
-INITFS_EOF
-    mkinitfs -o /boot/initramfs-lts $KVER
-    echo "Initramfs generated for kernel $KVER"
-fi
-CHROOT_EOF
-    
-    log_success "Bootloader packages installed"
+    log_success "Chroot cleaned"
 }
 
 create_iso() {
-    log_info "Creating bootable live ISO with SYSLINUX..."
+    log_info "Creating bootable ISO..."
     
     # Create ISO structure
-    mkdir -p "$BUILD_DIR/iso/boot"
     mkdir -p "$BUILD_DIR/iso/boot/isolinux"
     
     # Copy kernel and initramfs
-    log_info "Copying kernel and initramfs..."
-    if [[ -f "$BUILD_DIR/rootfs/boot/vmlinuz-lts" ]]; then
-        cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/"
-        cp "$BUILD_DIR/rootfs/boot/initramfs-lts" "$BUILD_DIR/iso/boot/"
-        log_success "Kernel and initramfs copied"
-    else
-        log_error "Kernel not found!"
-        exit 1
-    fi
+    log_info "Copying kernel..."
+    cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz"
+    cp "$BUILD_DIR/rootfs/boot/initramfs-lts" "$BUILD_DIR/iso/boot/initramfs"
     
-    # Create SquashFS root filesystem
-    log_info "Creating compressed root filesystem (this may take a while)..."
+    # Create SquashFS
+    log_info "Creating compressed filesystem (this may take a few minutes)..."
     mksquashfs "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/boot/rootfs.squashfs" \
         -comp xz -b 1M -noappend -e boot
     
-    # Copy SYSLINUX bootloader files
+    # Copy SYSLINUX files
     log_info "Setting up SYSLINUX bootloader..."
-    cp /usr/lib/ISOLINUX/isolinux.bin "$BUILD_DIR/iso/boot/isolinux/" 2>/dev/null || \
-    cp /usr/lib/syslinux/modules/bios/isolinux.bin "$BUILD_DIR/iso/boot/isolinux/" 2>/dev/null || \
-    cp /usr/share/syslinux/isolinux.bin "$BUILD_DIR/iso/boot/isolinux/"
     
-    cp /usr/lib/syslinux/modules/bios/*.c32 "$BUILD_DIR/iso/boot/isolinux/" 2>/dev/null || \
-    cp /usr/share/syslinux/*.c32 "$BUILD_DIR/iso/boot/isolinux/"
+    # Find and copy isolinux.bin
+    if [[ -f "/usr/lib/ISOLINUX/isolinux.bin" ]]; then
+        cp /usr/lib/ISOLINUX/isolinux.bin "$BUILD_DIR/iso/boot/isolinux/"
+    elif [[ -f "/usr/lib/syslinux/modules/bios/isolinux.bin" ]]; then
+        cp /usr/lib/syslinux/modules/bios/isolinux.bin "$BUILD_DIR/iso/boot/isolinux/"
+    else
+        cp /usr/share/syslinux/isolinux.bin "$BUILD_DIR/iso/boot/isolinux/"
+    fi
     
-    # CRITICAL: Create SYSLINUX config with proper boot parameters
-    log_info "Configuring SYSLINUX with safe video parameters..."
-cat > "$BUILD_DIR/iso/boot/isolinux/isolinux.cfg" <<'SYSLINUXCFG'
+    # Copy .c32 modules
+    if [[ -d "/usr/lib/syslinux/modules/bios" ]]; then
+        cp /usr/lib/syslinux/modules/bios/*.c32 "$BUILD_DIR/iso/boot/isolinux/" 2>/dev/null || true
+    else
+        cp /usr/share/syslinux/*.c32 "$BUILD_DIR/iso/boot/isolinux/" 2>/dev/null || true
+    fi
+    
+    # Create SYSLINUX config
+    cat > "$BUILD_DIR/iso/boot/isolinux/isolinux.cfg" <<'SYSLINUXCFG'
 DEFAULT cyberxp
-PROMPT 1
+PROMPT 0
 TIMEOUT 50
 UI menu.c32
 
 MENU TITLE CyberXP-OS Boot Menu
-MENU COLOR border 30;44 #40ffffff #a0000000 std
-MENU COLOR title  1;36;44 #9033ccff #a0000000 std
-MENU COLOR sel    7;37;40 #e0ffffff #20ffffff all
-MENU COLOR unsel  37;44 #50ffffff #a0000000 std
 
 LABEL cyberxp
-    MENU LABEL CyberXP-OS Live (Safe Mode)
-    KERNEL /boot/vmlinuz-lts
-    APPEND initrd=/boot/initramfs-lts modules=loop,squashfs,sd-mod,usb-storage nomodeset console=tty0 console=ttyS0,115200
-    TEXT HELP
-    Boot CyberXP-OS in safe graphics mode (recommended for VMs)
-    ENDTEXT
+    MENU LABEL CyberXP-OS Live
+    KERNEL /boot/vmlinuz
+    APPEND initrd=/boot/initramfs modules=loop,squashfs,sd-mod,usb-storage nomodeset console=tty1
 
 LABEL verbose
-    MENU LABEL CyberXP-OS Live (Verbose)
-    KERNEL /boot/vmlinuz-lts
-    APPEND initrd=/boot/initramfs-lts modules=loop,squashfs,sd-mod,usb-storage nomodeset console=tty0 loglevel=7
-    TEXT HELP
-    Boot with detailed kernel messages for troubleshooting
-    ENDTEXT
-
-LABEL vesa
-    MENU LABEL CyberXP-OS Live (VESA Graphics)
-    KERNEL /boot/vmlinuz-lts
-    APPEND initrd=/boot/initramfs-lts modules=loop,squashfs,sd-mod,usb-storage vga=791 nomodeset
-    TEXT HELP
-    Boot with VESA framebuffer (1024x768)
-    ENDTEXT
+    MENU LABEL CyberXP-OS (Verbose)
+    KERNEL /boot/vmlinuz
+    APPEND initrd=/boot/initramfs modules=loop,squashfs,sd-mod,usb-storage nomodeset console=tty0 loglevel=7
 
 LABEL recovery
     MENU LABEL Recovery Shell
-    KERNEL /boot/vmlinuz-lts
-    APPEND initrd=/boot/initramfs-lts modules=loop,squashfs,sd-mod,usb-storage init=/bin/sh
-    TEXT HELP
-    Boot directly to emergency shell
-    ENDTEXT
+    KERNEL /boot/vmlinuz
+    APPEND initrd=/boot/initramfs init=/bin/sh
 SYSLINUXCFG
     
-    # Build the ISO with xorriso
+    # Build ISO
     local iso_file="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
     
-    log_info "Building bootable ISO with ISOLINUX..."
-    xorriso -as mkisofs \
-        -o "$iso_file" \
-        -b boot/isolinux/isolinux.bin \
-        -c boot/isolinux/boot.cat \
-        -no-emul-boot \
-        -boot-load-size 4 \
-        -boot-info-table \
-        -eltorito-alt-boot \
-        -e boot/isolinux/efiboot.img \
-        -no-emul-boot \
-        -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
-        -isohybrid-gpt-basdat \
-        -V "$ISO_LABEL" \
-        "$BUILD_DIR/iso" 2>&1 | grep -v "WARNING: -isohybrid-mbr" | grep -v "efiboot.img" || true
+    log_info "Building ISO..."
+    
+    # Check if isohdpfx.bin exists
+    local mbr_file=""
+    if [[ -f "/usr/lib/ISOLINUX/isohdpfx.bin" ]]; then
+        mbr_file="/usr/lib/ISOLINUX/isohdpfx.bin"
+    elif [[ -f "/usr/lib/syslinux/mbr/isohdpfx.bin" ]]; then
+        mbr_file="/usr/lib/syslinux/mbr/isohdpfx.bin"
+    fi
+    
+    if [[ -n "$mbr_file" ]]; then
+        xorriso -as mkisofs \
+            -o "$iso_file" \
+            -b boot/isolinux/isolinux.bin \
+            -c boot/isolinux/boot.cat \
+            -no-emul-boot \
+            -boot-load-size 4 \
+            -boot-info-table \
+            -isohybrid-mbr "$mbr_file" \
+            -V "$ISO_LABEL" \
+            "$BUILD_DIR/iso" 2>&1 | grep -v "WARNING" || true
+    else
+        # Fallback without hybrid MBR
+        xorriso -as mkisofs \
+            -o "$iso_file" \
+            -b boot/isolinux/isolinux.bin \
+            -c boot/isolinux/boot.cat \
+            -no-emul-boot \
+            -boot-load-size 4 \
+            -boot-info-table \
+            -V "$ISO_LABEL" \
+            "$BUILD_DIR/iso" 2>&1 | grep -v "WARNING" || true
+    fi
     
     if [[ -f "$iso_file" ]]; then
-        log_success "✓ Bootable ISO created: $iso_file"
+        log_success "✓ ISO created: $iso_file"
         log_info "Size: $(du -h "$iso_file" | cut -f1)"
-        
-        # Make ISO hybrid for USB boot
-        if command -v isohybrid &> /dev/null; then
-            isohybrid "$iso_file" 2>/dev/null || true
-            log_success "ISO made hybrid (USB bootable)"
-        fi
     else
-        log_error "ISO creation failed"
+        log_error "ISO creation failed - check xorriso output above"
         exit 1
     fi
 }
@@ -408,60 +466,38 @@ SYSLINUXCFG
 show_summary() {
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  🎉 CyberXP-OS Live ISO Build Complete!"
+    echo "  🎉 CyberXP-OS Build Complete!"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
-    echo "  Output:"
-    echo "    ISO: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
-    echo "    Root: $BUILD_DIR/iso/boot/rootfs.squashfs"
+    echo "  Output: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    echo "  Size:   $(du -h "$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso" | cut -f1)"
     echo ""
-    echo "  ✓ BLACK SCREEN FIX APPLIED:"
-    echo "    • nomodeset parameter added (disables graphics mode setting)"
-    echo "    • SYSLINUX bootloader (more compatible than GRUB)"
-    echo "    • Safe graphics mode by default"
-    echo "    • Multiple boot options for troubleshooting"
+    echo "  Test with QEMU:"
+    echo "    qemu-system-x86_64 -m 2048 \\"
+    echo "      -cdrom $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
     echo ""
-    echo "  Testing in QEMU:"
-    echo "    qemu-system-x86_64 -m 2048 -cdrom \\"
-    echo "      $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
-    echo ""
-    echo "  Testing in VirtualBox:"
-    echo "    VBoxManage createvm --name CyberXP-Test --register --ostype Linux_64"
-    echo "    VBoxManage modifyvm CyberXP-Test --memory 2048 --vram 16"
-    echo "    VBoxManage modifyvm CyberXP-Test --graphicscontroller vmsvga"
-    echo "    VBoxManage storagectl CyberXP-Test --name IDE --add ide"
-    echo "    VBoxManage storageattach CyberXP-Test --storagectl IDE \\"
+    echo "  Test with VirtualBox:"
+    echo "    VBoxManage createvm --name CyberXP --register --ostype Linux_64"
+    echo "    VBoxManage modifyvm CyberXP --memory 2048"
+    echo "    VBoxManage storagectl CyberXP --name SATA --add sata"
+    echo "    VBoxManage storageattach CyberXP --storagectl SATA \\"
     echo "      --port 0 --device 0 --type dvddrive \\"
     echo "      --medium $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
-    echo "    VBoxManage startvm CyberXP-Test"
+    echo "    VBoxManage startvm CyberXP"
     echo ""
-    echo "  Boot Menu Options:"
-    echo "    1. CyberXP-OS Live (Safe Mode) - DEFAULT"
-    echo "    2. CyberXP-OS Live (Verbose) - Shows detailed boot messages"
-    echo "    3. CyberXP-OS Live (VESA Graphics) - For stubborn hardware"
-    echo "    4. Recovery Shell - Emergency access"
-    echo ""
-    echo "  Login:"
-    echo "    Username: root"
-    echo "    Password: cyberxp"
-    echo ""
-    echo "  After successful boot:"
-    echo "    • Check network: ip addr"
-    echo "    • Start dashboard: python3 /opt/cyberxp-dashboard/app.py &"
-    echo "    • Install to disk: setup-alpine"
+    echo "  Login: root / cyberxp (password: cyberxp)"
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
 }
 
 ###############################################################################
-# Main Build Process
+# Main
 ###############################################################################
 
 main() {
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
-    echo "  CyberXP-OS Alpine Linux Live ISO Builder"
-    echo "  Version: $ISO_VERSION (Black Screen Fixed)"
+    echo "  CyberXP-OS Builder v$ISO_VERSION"
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
     
