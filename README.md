@@ -59,6 +59,19 @@ sudo dd if=cyberxp-os-v1.0.iso of=/dev/sdX bs=4M
 # Or use Rufus/Etcher on Windows/Mac
 ```
 
+## 🚀 Minimal Quick Start (Alpine ISO)
+
+- Boot ISO in VirtualBox (best: Bridged Adapter; or use NAT + port forward 8080)
+- Login as **root** (press Enter for blank password)
+- First boot will auto-install Python, pip, and dashboard (wait until "✓ CyberXP Dashboard started on port 8080")
+- Find VM IP in Alpine with:
+  ```sh
+  ip addr
+  # or
+  ifconfig
+  ```
+- Access dashboard: `http://<vm-ip>:8080` from your host browser
+- If VM has no IP, set network to **Bridged Adapter** and reboot the VM
 
 ## System Requirements
 
