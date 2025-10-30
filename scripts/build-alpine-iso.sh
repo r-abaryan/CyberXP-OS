@@ -103,7 +103,7 @@ create_apkovl_overlay() {
     mkdir -p "$overlay_dir/etc"
     # Pre-hashed password for 'cyberxp' (mkpasswd -m sha-512 cyberxp)
     cat > "$overlay_dir/etc/shadow" <<'EOF'
-root:$6$rounds=656000$YgFj0d8PD8W0yrG0$XQPmXFHgVK8xVUvLqr5VlKlN.jBQD9N0X8jKGR6YjqN1YZNyh0cB3Kv8zN7x1VbU9pQx2LjQ8FqVRPmN1KzJ9/:19000:0:::::
+root::19000:0:::::
 EOF
     
     # Network config
