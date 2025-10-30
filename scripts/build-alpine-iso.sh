@@ -332,12 +332,24 @@ setup_bootloader() {
     log_info "Installing kernel and bootloader..."
     
     chroot "$BUILD_DIR/rootfs" /bin/sh <<'CHROOT_EOF'
-apk add --no-cache linux-lts linux-firmware mkinitfs
+apk add --no-cache linux-lts linux-firmware mkinitfs squashfs-tools
 
-# Generate initramfs
+# Generate initramfs with required features
+cat > /etc/mkinitfs/mkinitfs.conf <<'INITFS_CONF'
+features="ata base cdrom ide scsi usb virtio ext4"
+INITFS_CONF
+
+# Create modloop (required for Alpine live boot)
 KVER=$(ls /lib/modules/ | head -1)
 if [ -n "$KVER" ]; then
     mkinitfs -o /boot/initramfs-lts $KVER
+    
+    # Create modloop squashfs (Alpine live requirement)
+    if [ -d "/lib/modules/$KVER" ]; then
+        mksquashfs "/lib/modules/$KVER" "/boot/modloop-lts" -comp xz
+        echo "✓ Modloop created"
+    fi
+    
     echo "✓ Initramfs generated for $KVER"
 fi
 CHROOT_EOF
@@ -368,6 +380,20 @@ create_iso() {
     cp "$BUILD_DIR/rootfs/boot/vmlinuz-lts" "$BUILD_DIR/iso/boot/vmlinuz"
     cp "$BUILD_DIR/rootfs/boot/initramfs-lts" "$BUILD_DIR/iso/boot/initramfs"
     
+    # Copy modloop if it exists (required for Alpine live boot)
+    if [[ -f "$BUILD_DIR/rootfs/boot/modloop-lts" ]]; then
+        cp "$BUILD_DIR/rootfs/boot/modloop-lts" "$BUILD_DIR/iso/boot/modloop-lts"
+        log_success "Modloop copied"
+    else
+        log_warn "Modloop not found - creating it now..."
+        # Create modloop from kernel modules
+        KVER=$(ls "$BUILD_DIR/rootfs/lib/modules" | head -1)
+        if [[ -n "$KVER" ]] && [[ -d "$BUILD_DIR/rootfs/lib/modules/$KVER" ]]; then
+            mksquashfs "$BUILD_DIR/rootfs/lib/modules/$KVER" "$BUILD_DIR/iso/boot/modloop-lts" -comp xz
+            log_success "Modloop created"
+        fi
+    fi
+    
     # Create SquashFS
     log_info "Creating compressed filesystem (this may take a few minutes)..."
     mksquashfs "$BUILD_DIR/rootfs" "$BUILD_DIR/iso/boot/rootfs.squashfs" \
@@ -392,7 +418,7 @@ create_iso() {
         cp /usr/share/syslinux/*.c32 "$BUILD_DIR/iso/boot/isolinux/" 2>/dev/null || true
     fi
     
-    # Create SYSLINUX config
+    # Create SYSLINUX config with proper Alpine live boot parameters
     cat > "$BUILD_DIR/iso/boot/isolinux/isolinux.cfg" <<'SYSLINUXCFG'
 DEFAULT cyberxp
 PROMPT 0
@@ -404,12 +430,12 @@ MENU TITLE CyberXP-OS Boot Menu
 LABEL cyberxp
     MENU LABEL CyberXP-OS Live
     KERNEL /boot/vmlinuz
-    APPEND initrd=/boot/initramfs modules=loop,squashfs,sd-mod,usb-storage nomodeset console=tty1
+    APPEND initrd=/boot/initramfs modules=loop,squashfs,sd-mod,usb-storage,ext4 alpine_dev=cdrom:iso9660 modloop=/boot/modloop-lts nomodeset console=tty1 quiet
 
 LABEL verbose
     MENU LABEL CyberXP-OS (Verbose)
     KERNEL /boot/vmlinuz
-    APPEND initrd=/boot/initramfs modules=loop,squashfs,sd-mod,usb-storage nomodeset console=tty0 loglevel=7
+    APPEND initrd=/boot/initramfs modules=loop,squashfs,sd-mod,usb-storage,ext4 alpine_dev=cdrom:iso9660 modloop=/boot/modloop-lts nomodeset console=tty0 loglevel=7
 
 LABEL recovery
     MENU LABEL Recovery Shell
