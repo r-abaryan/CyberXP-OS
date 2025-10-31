@@ -16,7 +16,6 @@ ALPINE_VERSION="3.18.4"
 ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine"
 BUILD_DIR="$(pwd)/build/alpine"
 OUTPUT_DIR="$(pwd)/build/output"
-
 ISO_NAME="cyberxp-os"
 ISO_VERSION="0.1.0-alpha"
 ISO_LABEL="CYBERXP_OS"
@@ -94,7 +93,7 @@ create_apkovl_overlay() {
     
     local overlay_dir="$BUILD_DIR/overlay"
     rm -rf "$overlay_dir"
-    mkdir -p "$overlay_dir"/{etc,root,opt}
+    mkdir -p "$overlay_dir"/{etc/profile.d,etc/network,etc/apk,etc/local.d,root,opt,etc/init.d,etc/runlevels/default}
     
     # Hostname
     echo "cyberxp-os" > "$overlay_dir/etc/hostname"
@@ -105,15 +104,16 @@ create_apkovl_overlay() {
 root::19000:0:::::
 EOF
     
-    # Network config
+    # Base network config (default eth0 like previous working version)
     mkdir -p "$overlay_dir/etc/network"
     cat > "$overlay_dir/etc/network/interfaces" <<'EOF'
 auto lo
 iface lo inet loopback
-
+ 
 auto eth0
 iface eth0 inet dhcp
     hostname cyberxp-os
+    udhcpc_opts -t 5 -T 3 -A 1
 EOF
     
     # Repositories
@@ -123,56 +123,119 @@ http://dl-cdn.alpinelinux.org/alpine/v3.18/main
 http://dl-cdn.alpinelinux.org/alpine/v3.18/community
 EOF
     
-    # Local startup script
+    # Local startup script with improved networking and service enablement
     mkdir -p "$overlay_dir/etc/local.d"
     cat > "$overlay_dir/etc/local.d/cyberxp.start" <<'STARTSCRIPT'
 #!/bin/sh
 # CyberXP-OS startup script
 
 # Enable and start networking
-rc-service networking start 2>/dev/null || {
-    # Fallback: manually configure network
-    echo "Configuring network manually..."
+echo "Configuring network..."
+
+IFACE=""
+for c in eth0 enp0s3 enp0s8 ens33; do
+    if [ -d "/sys/class/net/$c" ]; then IFACE=$c; break; fi
+done
+if [ -z "$IFACE" ]; then
+    IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^(eth|enp|ens)' | head -1)
+fi
+
+if [ -n "$IFACE" ]; then
+    echo "Found interface: $IFACE"
     
-    # Find first network interface (not lo)
-    IFACE=$(ip link show | grep -E '^[0-9]+: (eth|enp|ens)' | head -1 | cut -d: -f2 | tr -d ' ')
+    # Bring interface up
+    ip link set $IFACE up
     
-    if [ -n "$IFACE" ]; then
-        echo "Found interface: $IFACE"
-        ip link set $IFACE up
-        udhcpc -i $IFACE -b -q 2>/dev/null &
-        sleep 3
-        echo "✓ Network configured on $IFACE"
-        ip addr show $IFACE
+    # Kill any existing udhcpc processes
+    killall udhcpc 2>/dev/null || true
+    
+    # Update /etc/network/interfaces to match detected iface
+    cat > /etc/network/interfaces <<EOFCONF
+auto lo
+iface lo inet loopback
+
+auto $IFACE
+iface $IFACE inet dhcp
+    hostname cyberxp-os
+    udhcpc_opts -t 5 -T 3 -A 1
+EOFCONF
+
+    rc-update add networking default 2>/dev/null || true
+    rc-service networking restart 2>/dev/null || true
+
+    # Start udhcpc with proper flags for VirtualBox compatibility
+    echo "Requesting IPv4 address via DHCP..."
+    udhcpc -i $IFACE -f -n -q -t 5 -T 3 -A 1 || {
+        echo "DHCP foreground failed, trying background mode..."
+        udhcpc -i $IFACE -b -q -t 10 -T 2
+    }
+    
+    # Wait for IP assignment
+    sleep 3
+    
+    # Check if we got IPv4
+    IPV4=$(ip -4 addr show $IFACE | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+    
+    if [ -n "$IPV4" ]; then
+        echo "✓ Network configured on $IFACE with IP: $IPV4"
+        ip addr show $IFACE | grep inet
     else
-        echo "⚠ No network interface found"
+        echo "⚠ No IPv4 address obtained"
+        echo "Current network status:"
+        ip addr show $IFACE
+        echo ""
+        echo "Try manually: udhcpc -i $IFACE -n"
     fi
-}
+else
+    echo "⚠ No network interface found"
+fi
 
 # Install packages on first boot
 if [ ! -f /root/.cyberxp-installed ]; then
     echo "Installing CyberXP packages..."
     apk update
-    apk add python3 py3-pip bash nano htop curl git
+    # Prefer distro packages first to avoid pip/network fragility
+    apk add python3 py3-pip py3-flask py3-psutil bash nano htop curl git net-tools 2>/dev/null || true
     
-    # Install Flask
-    pip3 install --break-system-packages Flask 2>/dev/null || pip3 install Flask
+    # Fallback to pip if Flask not present
+    if ! python3 -c "import flask" 2>/dev/null; then
+        echo "Installing Flask via pip..."
+        pip3 install --break-system-packages Flask 2>/dev/null || pip3 install Flask || true
+    fi
     
     touch /root/.cyberxp-installed
     echo "✓ CyberXP packages installed"
 fi
 
+# Ensure OpenRC service is registered
+if [ -x /etc/init.d/cyberxp-dashboard ]; then
+    rc-update add cyberxp-dashboard default 2>/dev/null || true
+fi
+
+# Ensure local scripts run at boot
+if [ -x /etc/init.d/local ]; then
+    rc-update add local default 2>/dev/null || true
+fi
+
 # Start dashboard if it exists
 if [ -f /opt/cyberxp-dashboard/app.py ]; then
     cd /opt/cyberxp-dashboard
-    python3 app.py > /var/log/cyberxp-dashboard.log 2>&1 &
-    echo "✓ CyberXP Dashboard started on port 8080"
+    # Prefer service if available; otherwise background run
+    if rc-service cyberxp-dashboard status >/dev/null 2>&1; then
+        rc-service cyberxp-dashboard restart || rc-service cyberxp-dashboard start
+    else
+        python3 /opt/cyberxp-dashboard/app.py > /var/log/cyberxp-dashboard.log 2>&1 &
+    fi
+    echo "✓ CyberXP Dashboard should be running on port 8080"
     
-    # Show IP address
+    # Show IP address for dashboard access
     sleep 2
-    IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
-    if [ -n "$IP" ]; then
-        echo "✓ Dashboard available at: http://$IP:8080"
+    IPV4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+    if [ -n "$IPV4" ]; then
+        echo "✓ Dashboard available at: http://$IPV4:8080"
+        echo "✓ From host (NAT): Setup port forwarding or use http://localhost:8080"
+    else
+        echo "⚠ No IPv4 - Dashboard running but network needs configuration"
     fi
 fi
 STARTSCRIPT
@@ -180,19 +243,19 @@ STARTSCRIPT
     
     # MOTD with network instructions
     cat > "$overlay_dir/etc/motd" <<'EOF'
-
 ╔═══════════════════════════════════════════════════════════╗
-║             CyberXP-OS v0.1.0-alpha (Live)                ║
-║           AI-Powered Security Analysis Platform           ║
+║          CyberXP-OS v0.1.0-alpha (Live)                  ║
+║      AI-Powered Security Analysis Platform               ║
 ╚═══════════════════════════════════════════════════════════╝
 
-Login: root
+Login:    root
 Password: (blank - just press Enter)
 
 Network Status:
 EOF
     
     # Add a script to show network status in MOTD
+    mkdir -p "$overlay_dir/etc/profile.d"
     cat > "$overlay_dir/etc/profile.d/network-status.sh" <<'NETSCRIPT'
 # Show network status on login
 if [ "$PS1" ]; then
@@ -200,164 +263,203 @@ if [ "$PS1" ]; then
     echo "Network Interfaces:"
     ip -br addr show | grep -v "lo.*127.0.0.1" || echo "  No network configured"
     
-    IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
-    if [ -n "$IP" ]; then
+    IPV4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+    if [ -n "$IPV4" ]; then
         echo ""
-        echo "✓ Dashboard: http://$IP:8080"
+        echo "✓ Dashboard: http://$IPV4:8080"
+        echo "✓ From host (with NAT): http://localhost:8080 (setup port forwarding first)"
     else
         echo ""
-        echo "⚠ Network not configured. Run: setup-interfaces"
+        echo "⚠ No IPv4 configured. Try:"
+        echo "   • udhcpc -i eth0 -n"
+        echo "   • setup-interfaces -r"
     fi
     echo ""
 fi
 NETSCRIPT
+    chmod 644 "$overlay_dir/etc/profile.d/network-status.sh"
     
     cat >> "$overlay_dir/etc/motd" <<'EOF'
 
 Quick Start:
+  • Fix IPv4:          udhcpc -i eth0 -n
   • Configure network: setup-interfaces -r
-  • Manual network:    udhcpc
   • Install to disk:   setup-alpine
   • View dashboard:    See IP above
 
-GitHub: https://github.com/r-abaryan/CyberXP-OS
+Troubleshooting:
+  • Check interface:   ip addr show eth0
+  • Test DHCP:         udhcpc -i eth0 -f -n -v
+  • Manual IP:         ip addr add 10.0.2.15/24 dev eth0
 
+GitHub: https://github.com/r-abaryan/CyberXP-OS
 EOF
     
     # CyberXP Dashboard
     mkdir -p "$overlay_dir/opt/cyberxp-dashboard"
     cat > "$overlay_dir/opt/cyberxp-dashboard/app.py" <<'PYEOF'
 from flask import Flask, render_template_string
+import subprocess
 
 app = Flask(__name__)
+
+def get_network_info():
+    try:
+        result = subprocess.run(['ip', '-4', 'addr', 'show'], 
+                               capture_output=True, text=True)
+        return result.stdout
+    except:
+        return "Network info unavailable"
 
 HTML = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>CyberXP-OS Dashboard</title>
+    <meta http-equiv="refresh" content="30">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Courier New', monospace;
-            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
-            color: #0f0;
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
             min-height: 100vh;
-            padding: 20px;
-        }
-        .container { 
-            max-width: 1200px; 
-            margin: 0 auto;
-            background: rgba(0,0,0,0.7);
-            border: 2px solid #0f0;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 0 20px rgba(0,255,0,0.3);
-        }
-        h1 { 
-            text-align: center;
-            font-size: 2.5em;
-            margin-bottom: 30px;
-            text-shadow: 0 0 10px #0f0;
-        }
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        .card {
-            background: rgba(0,40,0,0.5);
-            border: 1px solid #0f0;
-            border-radius: 8px;
-            padding: 20px;
-        }
-        .card h2 {
-            color: #0f0;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #0f0;
-            padding-bottom: 10px;
-        }
-        .status-line {
             display: flex;
-            justify-content: space-between;
-            margin: 10px 0;
-            padding: 5px;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
         }
-        .status-ok { color: #0f0; }
-        .status-warn { color: #ff0; }
-        code {
-            background: rgba(0,0,0,0.5);
-            padding: 2px 6px;
-            border-radius: 3px;
-            color: #0ff;
+        .container {
+            max-width: 1000px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
         }
-        .blink { animation: blink 1s infinite; }
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0.3; }
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .subtitle {
+            text-align: center;
+            font-size: 1.2em;
+            opacity: 0.9;
+            margin-bottom: 40px;
+        }
+        .status {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .status h2 {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+        }
+        .network-info {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        .commands {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .cmd {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #4ade80;
+        }
+        .cmd h3 {
+            font-size: 1.1em;
+            margin-bottom: 8px;
+            color: #4ade80;
+        }
+        .cmd code {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: inline-block;
+            font-family: 'Courier New', monospace;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            opacity: 0.8;
+        }
+        .footer a {
+            color: #4ade80;
+            text-decoration: none;
+        }
+        .refresh-note {
+            text-align: center;
+            font-size: 0.9em;
+            opacity: 0.7;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🛡️ CyberXP-OS Dashboard</h1>
+        <h1>🛡️ CyberXP-OS</h1>
+        <div class="subtitle">AI-Powered Security Analysis Platform</div>
         
-        <div class="status-grid">
-            <div class="card">
-                <h2>System Status</h2>
-                <div class="status-line">
-                    <span>Mode:</span>
-                    <span class="status-ok blink">● LIVE (Diskless)</span>
-                </div>
-                <div class="status-line">
-                    <span>Version:</span>
-                    <span>0.1.0-alpha</span>
-                </div>
-                <div class="status-line">
-                    <span>Base:</span>
-                    <span>Alpine Linux 3.18</span>
-                </div>
+        <div class="status">
+            <h2>System Status</h2>
+            <p>✓ Alpine Linux Live Environment</p>
+            <p>✓ Dashboard Running on Port 8080</p>
+            <p>⚠ Live Mode - Changes will be lost on reboot</p>
+            <div class="refresh-note">Page auto-refreshes every 30 seconds</div>
+        </div>
+        
+        <div class="status">
+            <h2>Network Configuration</h2>
+            <div class="network-info">{{ network_info }}</div>
+        </div>
+        
+        <div class="commands">
+            <div class="cmd">
+                <h3>Fix IPv4 DHCP</h3>
+                <code>udhcpc -i eth0 -n</code>
             </div>
-            
-            <div class="card">
-                <h2>Quick Commands</h2>
-                <div style="line-height: 2;">
-                    <div>Network: <code>setup-interfaces</code></div>
-                    <div>Install: <code>setup-alpine</code></div>
-                    <div>Packages: <code>apk add &lt;pkg&gt;</code></div>
-                    <div>Reboot: <code>reboot</code></div>
-                </div>
+            <div class="cmd">
+                <h3>Network Setup</h3>
+                <code>setup-interfaces</code>
             </div>
-            
-            <div class="card">
-                <h2>Security Features</h2>
-                <div class="status-line">
-                    <span>AI Analysis:</span>
-                    <span class="status-warn">⚠ Not Configured</span>
-                </div>
-                <div class="status-line">
-                    <span>Firewall:</span>
-                    <span class="status-ok">✓ Available</span>
-                </div>
-                <div class="status-line">
-                    <span>Network Tools:</span>
-                    <span class="status-ok">✓ Ready</span>
-                </div>
+            <div class="cmd">
+                <h3>Install to Disk</h3>
+                <code>setup-alpine</code>
+            </div>
+            <div class="cmd">
+                <h3>Install Packages</h3>
+                <code>apk add &lt;pkg&gt;</code>
+            </div>
+            <div class="cmd">
+                <h3>Check Network</h3>
+                <code>ip addr show</code>
+            </div>
+            <div class="cmd">
+                <h3>Restart Network</h3>
+                <code>rc-service networking restart</code>
             </div>
         </div>
         
-        <div class="card" style="margin-top: 20px;">
-            <h2>About CyberXP-OS</h2>
-            <p style="line-height: 1.8;">
-                CyberXP-OS is a specialized Linux distribution designed for security analysis 
-                and AI-powered threat detection. This is a live system running entirely from 
-                RAM - all changes will be lost on reboot unless you install to disk.
+        <div class="footer">
+            <p><strong>About:</strong> CyberXP-OS is a specialized Linux distribution designed for security analysis and AI-powered threat detection. This is a live system running entirely from RAM.</p>
+            <p style="margin-top: 10px;">
+                <strong>VirtualBox NAT Users:</strong> Setup port forwarding (Host Port 8080 → Guest Port 8080) to access this dashboard from your host machine at http://localhost:8080
             </p>
-            <p style="margin-top: 15px;">
-                GitHub: <a href="https://github.com/r-abaryan/CyberXP-OS" style="color: #0ff;">
-                    github.com/r-abaryan/CyberXP-OS
-                </a>
+            <p style="margin-top: 10px;">
+                <a href="https://github.com/r-abaryan/CyberXP-OS" target="_blank">GitHub: github.com/r-abaryan/CyberXP-OS</a>
             </p>
         </div>
     </div>
@@ -367,156 +469,173 @@ HTML = """
 
 @app.route('/')
 def home():
-    return render_template_string(HTML)
+    network_info = get_network_info()
+    return render_template_string(HTML, network_info=network_info)
 
 if __name__ == '__main__':
-    print("Starting CyberXP Dashboard on http://0.0.0.0:8080")
     app.run(host='0.0.0.0', port=8080, debug=False)
 PYEOF
     
-    # Package the overlay as apkovl
-    log_info "Creating apkovl archive..."
+    # OpenRC service for dashboard
+    cat > "$overlay_dir/etc/init.d/cyberxp-dashboard" <<'SVC'
+#!/sbin/openrc-run
+description="CyberXP Dashboard (Flask)"
+
+# Use /bin/sh to avoid hardcoding python path
+command="/bin/sh"
+command_args="-c 'exec python3 /opt/cyberxp-dashboard/app.py'"
+pidfile="/run/cyberxp-dashboard.pid"
+command_background="yes"
+
+depend() {
+    need net
+    after firewall
+}
+SVC
+    chmod +x "$overlay_dir/etc/init.d/cyberxp-dashboard"
+
+    # Enable services in default runlevel via symlinks
+    ln -sf /etc/init.d/cyberxp-dashboard "$overlay_dir/etc/runlevels/default/cyberxp-dashboard"
+    # Ensure local.d scripts run on boot as well
+    ln -sf /etc/init.d/local "$overlay_dir/etc/runlevels/default/local"
+    
+    # Package overlay as apkovl tarball
+    log_info "Packaging overlay..."
     cd "$overlay_dir"
-    tar czf "$BUILD_DIR/iso/cyberxp.apkovl.tar.gz" .
+    tar czf "$BUILD_DIR/cyberxp.apkovl.tar.gz" *
     cd - > /dev/null
     
-    log_success "CyberXP overlay created"
+    log_success "Overlay created: $BUILD_DIR/cyberxp.apkovl.tar.gz"
 }
 
-customize_boot() {
-    log_info "Customizing boot configuration..."
+integrate_overlay_into_iso() {
+    log_info "Integrating overlay into ISO..."
     
-    # Find syslinux config location
-    local syslinux_dir=""
-    if [[ -d "$BUILD_DIR/iso/boot/syslinux" ]]; then
-        syslinux_dir="$BUILD_DIR/iso/boot/syslinux"
-    elif [[ -d "$BUILD_DIR/iso/syslinux" ]]; then
-        syslinux_dir="$BUILD_DIR/iso/syslinux"
+    # Copy overlay to ISO root
+    cp "$BUILD_DIR/cyberxp.apkovl.tar.gz" "$BUILD_DIR/iso/"
+    
+    # Modify boot configuration to auto-load overlay (both BIOS and UEFI)
+    local syslinux_cfg="$BUILD_DIR/iso/boot/syslinux/syslinux.cfg"
+    local grub_cfg="$BUILD_DIR/iso/boot/grub/grub.cfg"
+
+    # BIOS: Syslinux
+    if [[ -f "$syslinux_cfg" ]]; then
+        cp "$syslinux_cfg" "${syslinux_cfg}.bak"
+        # Try to update a default kernel opts variable if present
+        sed -i 's/default_kernel_opts\(.*\)$/default_kernel_opts\1 apkovl=LABEL=CYBERXP_OS:\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
+        # Also patch any explicit append lines
+        sed -i 's/\(\<append\>\.*\)/\1 apkovl=LABEL=CYBERXP_OS:\\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
+        # As a fallback, replace first occurrence of "quiet"
+        sed -i '0,/: quiet/s//: quiet apkovl=LABEL=CYBERXP_OS:\\\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
+        log_success "Syslinux updated to load overlay"
     else
-        log_warn "Syslinux directory not found, using default Alpine boot"
-        return
+        log_warn "syslinux.cfg not found, BIOS path unchanged"
     fi
-    
-    log_info "Found syslinux at: $syslinux_dir"
-    
-    # Backup original
-    cp "$syslinux_dir/syslinux.cfg" "$syslinux_dir/syslinux.cfg.orig" 2>/dev/null || true
-    
-    # Create custom config (simpler, no menu.c32 dependency)
-    cat > "$syslinux_dir/syslinux.cfg" <<'SYSLINUX'
-SERIAL 0 115200
-DEFAULT cyberxp
-PROMPT 1
-TIMEOUT 50
 
-LABEL cyberxp
-    MENU LABEL CyberXP-OS Live
-    KERNEL /boot/vmlinuz-lts
-    INITRD /boot/initramfs-lts
-    APPEND modules=loop,squashfs,sd-mod,usb-storage nomodeset quiet
-
-LABEL cyberxp-verbose
-    MENU LABEL CyberXP-OS Live (Verbose)
-    KERNEL /boot/vmlinuz-lts
-    INITRD /boot/initramfs-lts
-    APPEND modules=loop,squashfs,sd-mod,usb-storage nomodeset console=tty0
-
-LABEL recovery
-    MENU LABEL Recovery Shell
-    KERNEL /boot/vmlinuz-lts
-    INITRD /boot/initramfs-lts
-    APPEND modules=loop,squashfs,sd-mod,usb-storage init=/bin/sh
-SYSLINUX
-    
-    log_success "Boot configuration customized (menu.c32 removed)"
+    # UEFI: GRUB
+    if [[ -f "$grub_cfg" ]]; then
+        cp "$grub_cfg" "${grub_cfg}.bak"
+        # Append param to linux lines
+        sed -i 's/\(linux\s\+[^\n]*\)$/\1 apkovl=LABEL=CYBERXP_OS:\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$grub_cfg" || true
+        log_success "GRUB updated to load overlay"
+    else
+        log_warn "grub.cfg not found, UEFI path unchanged"
+    fi
 }
 
-create_iso() {
-    log_info "Creating final ISO..."
+build_iso() {
+    log_info "Building custom ISO..."
     
-    local iso_file="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
     mkdir -p "$OUTPUT_DIR"
+    local output_iso="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
     
-    # Use xorriso to create bootable ISO
-    if [[ -f "$BUILD_DIR/iso/boot/syslinux/isolinux.bin" ]]; then
-        xorriso -as mkisofs \
-            -o "$iso_file" \
-            -isohybrid-mbr "$BUILD_DIR/iso/boot/syslinux/isohdpfx.bin" \
-            -c boot/syslinux/boot.cat \
-            -b boot/syslinux/isolinux.bin \
-            -no-emul-boot \
-            -boot-load-size 4 \
-            -boot-info-table \
-            -V "$ISO_LABEL" \
-            "$BUILD_DIR/iso" 2>&1 | grep -v "WARNING" || true
-    else
-        # Fallback for different Alpine versions
-        xorriso -as mkisofs \
-            -o "$iso_file" \
-            -V "$ISO_LABEL" \
-            "$BUILD_DIR/iso" 2>&1 | grep -v "WARNING" || true
-    fi
+    xorriso -as mkisofs \
+        -iso-level 3 \
+        -full-iso9660-filenames \
+        -volid "$ISO_LABEL" \
+        -eltorito-boot boot/syslinux/isolinux.bin \
+        -eltorito-catalog boot/syslinux/boot.cat \
+        -no-emul-boot \
+        -boot-load-size 4 \
+        -boot-info-table \
+        -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+        -output "$output_iso" \
+        "$BUILD_DIR/iso" 2>&1 | grep -v "xorriso : UPDATE" || true
     
-    if [[ -f "$iso_file" ]]; then
-        log_success "✓ ISO created: $iso_file"
-        log_info "Size: $(du -h "$iso_file" | cut -f1)"
+    if [[ -f "$output_iso" ]]; then
+        log_success "ISO built: $output_iso"
+        log_info "ISO size: $(du -h "$output_iso" | cut -f1)"
     else
-        log_error "ISO creation failed"
+        log_error "ISO build failed"
         exit 1
     fi
 }
 
+cleanup() {
+    log_info "Cleaning up..."
+    
+    # Unmount if still mounted
+    if mountpoint -q "$BUILD_DIR/mnt" 2>/dev/null; then
+        umount "$BUILD_DIR/mnt"
+    fi
+    
+    log_success "Cleanup complete"
+}
+
 show_summary() {
     echo ""
-    echo "═══════════════════════════════════════════════════════════════"
-    echo "  🎉 CyberXP-OS Live ISO Ready!"
-    echo "═══════════════════════════════════════════════════════════════"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${GREEN}✓ CyberXP-OS ISO Build Complete${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "  ISO: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    echo "ISO Location: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
     echo ""
-    echo "  This ISO uses Alpine's native live boot system with"
-    echo "  CyberXP customizations applied via apkovl overlay."
+    echo "Next Steps:"
+    echo "  1. Test in VM: qemu-system-x86_64 -m 2048 -cdrom $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    echo "  2. Burn to USB: sudo dd if=$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso of=/dev/sdX bs=4M status=progress"
+    echo "  3. Boot and login with username 'root' (no password)"
     echo ""
-    echo "  Test with QEMU:"
-    echo "    qemu-system-x86_64 -m 2048 -enable-kvm \\"
-    echo "      -cdrom $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    echo "VirtualBox Setup:"
+    echo "  • Network: NAT mode (default)"
+    echo "  • Port Forward: Host Port 8080 → Guest Port 8080"
+    echo "  • Access: http://localhost:8080 (from host)"
     echo ""
-    echo "  Test with VirtualBox:"
-    echo "    VBoxManage createvm --name CyberXP --ostype Linux_64 --register"
-    echo "    VBoxManage modifyvm CyberXP --memory 2048"
-    echo "    VBoxManage storagectl CyberXP --name SATA --add sata"
-    echo "    VBoxManage storageattach CyberXP --storagectl SATA \\"
-    echo "      --port 0 --device 0 --type dvddrive \\"
-    echo "      --medium $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
-    echo "    VBoxManage startvm CyberXP"
+    echo "If IPv4 doesn't work:"
+    echo "  • Run: udhcpc -i eth0 -n"
+    echo "  • Or: setup-interfaces -r"
     echo ""
-    echo "  Login: root"
-    echo "  Password: cyberxp"
+    echo "Features:"
+    echo "  ✓ Enhanced DHCP client with VirtualBox compatibility"
+    echo "  ✓ Auto-network configuration (IPv4 via DHCP)"
+    echo "  ✓ Web dashboard on port 8080 with live network status"
+    echo "  ✓ Troubleshooting commands in MOTD"
     echo ""
-    echo "  Dashboard will auto-start after packages install"
-    echo "  Access at: http://<vm-ip>:8080"
-    echo ""
-    echo "═══════════════════════════════════════════════════════════════"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
 ###############################################################################
-# Main
+# Main Execution
 ###############################################################################
 
 main() {
     echo ""
-    echo "═══════════════════════════════════════════════════════════════"
-    echo "  CyberXP-OS Builder v$ISO_VERSION"
-    echo "  Based on Alpine Linux (Native Live Boot)"
-    echo "═══════════════════════════════════════════════════════════════"
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║        CyberXP-OS Alpine Linux ISO Builder               ║"
+    echo "║         Version 5.1 - IPv4 Network Enhanced              ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
     echo ""
     
     check_requirements
     download_alpine_iso
     create_apkovl_overlay
-    customize_boot
-    create_iso
+    integrate_overlay_into_iso
+    build_iso
+    cleanup
     show_summary
 }
 
+# Trap errors
+trap 'log_error "Build failed at line $LINENO"' ERR
+
+# Run
 main "$@"
