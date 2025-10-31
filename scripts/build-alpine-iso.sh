@@ -129,129 +129,54 @@ EOF
 #!/bin/sh
 # CyberXP-OS startup script
 
-# Enable and start networking with static IP fallback
-echo "=== CyberXP Network Configuration ==="
-
-# Find first network interface (not lo)
-IFACE=$(ip link show | grep -E '^[0-9]+: (eth|enp|ens)' | head -1 | cut -d: -f2 | tr -d ' ')
-
-if [ -n "$IFACE" ]; then
-    echo "Found interface: $IFACE"
-
-    # Bring interface up
-    ip link set $IFACE up
-    sleep 1
-
-    # Kill any existing udhcpc processes
-    killall udhcpc 2>/dev/null || true
-
-    # Try DHCP first (quick attempt)
-    echo "Trying DHCP..."
-    timeout 5 udhcpc -i $IFACE -f -n -q -t 3 -T 1 2>/dev/null
-
-    # Wait briefly for IP assignment
-    sleep 1
-
-    # Check if we got IPv4
-    IPV4=$(ip -4 addr show $IFACE | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
-
-    if [ -n "$IPV4" ]; then
-        echo "✓ DHCP Success: $IPV4"
+# Enable and start networking
+rc-service networking start 2>/dev/null || {
+    # Fallback: manually configure network
+    echo "Configuring network manually..."
+    
+    # Find first network interface (not lo)
+    IFACE=$(ip link show | grep -E '^[0-9]+: (eth|enp|ens)' | head -1 | cut -d: -f2 | tr -d ' ')
+    
+    if [ -n "$IFACE" ]; then
+        echo "Found interface: $IFACE"
+        ip link set $IFACE up
+        udhcpc -i $IFACE -b -q 2>/dev/null &
+        sleep 3
+        echo "✓ Network configured on $IFACE"
+        ip addr show $IFACE
     else
-        # DHCP failed - use static IP for VirtualBox NAT (always works)
-        echo "DHCP failed - using static VirtualBox NAT configuration..."
-
-        # Flush any existing config
-        ip addr flush dev $IFACE 2>/dev/null || true
-        ip route flush dev $IFACE 2>/dev/null || true
-
-        # Configure static IP (VirtualBox NAT defaults)
-        ip addr add 10.0.2.15/24 dev $IFACE
-        ip route add default via 10.0.2.2 dev $IFACE
-
-        # Set DNS (VirtualBox NAT DNS + Google)
-        echo "nameserver 10.0.2.3" > /etc/resolv.conf
-        echo "nameserver 8.8.8.8" >> /etc/resolv.conf
-
-        IPV4="10.0.2.15"
-        echo "✓ Static IP configured: $IPV4"
+        echo "⚠ No network interface found"
     fi
-
-    # Display final network status
-    echo ""
-    echo "Network Status:"
-    ip -4 addr show $IFACE 2>/dev/null | grep inet || echo "  No IPv4 configured"
-    ip -6 addr show $IFACE 2>/dev/null | grep inet6 | head -1 || echo "  No IPv6"
-
-    # Test connectivity
-    echo ""
-    echo "Testing connectivity..."
-    if ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
-        echo "✓ Internet: Connected"
-    else
-        echo "⚠ Internet: Failed"
-        echo "  Check VirtualBox network adapter settings"
-    fi
-
-    echo "=== Network Ready ==="
-else
-    echo "⚠ No network interface found"
-fi
+}
 
 # Install packages on first boot
 if [ ! -f /root/.cyberxp-installed ]; then
-    echo ""
     echo "Installing CyberXP packages..."
-    apk update >/dev/null 2>&1
-    apk add python3 py3-pip bash nano htop curl git >/dev/null 2>&1
-
+    apk update
+    apk add python3 py3-pip bash nano htop curl git
+    
     # Install Flask
-    pip3 install --break-system-packages Flask >/dev/null 2>&1 || pip3 install Flask >/dev/null 2>&1
-
+    pip3 install --break-system-packages Flask 2>/dev/null || pip3 install Flask
+    
     touch /root/.cyberxp-installed
-    echo "✓ Packages installed"
+    echo "✓ CyberXP packages installed"
 fi
 
-# Start dashboard
+# Start dashboard if it exists
 if [ -f /opt/cyberxp-dashboard/app.py ]; then
-    echo ""
-    echo "Starting CyberXP Dashboard..."
     cd /opt/cyberxp-dashboard
-
-    # Kill any existing dashboard
-    pkill -f "python3 app.py" 2>/dev/null || true
-
-    # Start dashboard in background
-    python3 app.py >/var/log/cyberxp-dashboard.log 2>&1 &
-    DASHBOARD_PID=$!
-
-    # Wait and verify it started
+    python3 app.py > /var/log/cyberxp-dashboard.log 2>&1 &
+    echo "✓ CyberXP Dashboard started on port 8080"
+    
+    # Show IP address
     sleep 2
-    if kill -0 $DASHBOARD_PID 2>/dev/null; then
-        echo "✓ Dashboard started (PID: $DASHBOARD_PID)"
-
-        # Show access information
-        if [ -n "$IPV4" ]; then
-            echo ""
-            echo "=== Dashboard Access ==="
-            echo "VM Internal:  http://$IPV4:8080"
-            echo "VM Localhost: http://127.0.0.1:8080"
-            echo "Host Access:  http://localhost:8080 (requires port forwarding)"
-            echo ""
-            echo "VirtualBox Port Forward Setup:"
-            echo "  Protocol: TCP, Host Port: 8080, Guest Port: 8080"
-            echo "  (Leave Host IP and Guest IP blank)"
-        fi
-    else
-        echo "⚠ Dashboard failed to start"
+    IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+    if [ -n "$IP" ]; then
+        echo "✓ Dashboard available at: http://$IP:8080"
     fi
-else
-    echo "⚠ Dashboard not found"
 fi
-
-echo ""
-echo "=== CyberXP-OS Ready ==="
 STARTSCRIPT
+    chmod +x "$overlay_dir/etc/local.d/cyberxp.start"
     
     # MOTD with network instructions
     cat > "$overlay_dir/etc/motd" <<'EOF'
