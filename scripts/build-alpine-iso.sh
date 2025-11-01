@@ -104,16 +104,14 @@ create_apkovl_overlay() {
 root::19000:0:::::
 EOF
     
-    # Base network config (default eth0 like previous working version)
+    # Base network config (simple working version from fixed script)
     mkdir -p "$overlay_dir/etc/network"
     cat > "$overlay_dir/etc/network/interfaces" <<'EOF'
 auto lo
 iface lo inet loopback
- 
+
 auto eth0
 iface eth0 inet dhcp
-    hostname cyberxp-os
-    udhcpc_opts -t 5 -T 3 -A 1
 EOF
     
     # Repositories
@@ -123,120 +121,69 @@ http://dl-cdn.alpinelinux.org/alpine/v3.18/main
 http://dl-cdn.alpinelinux.org/alpine/v3.18/community
 EOF
     
-    # Local startup script with improved networking and service enablement
+    # Local startup script - install packages and start dashboard on first boot
     mkdir -p "$overlay_dir/etc/local.d"
     cat > "$overlay_dir/etc/local.d/cyberxp.start" <<'STARTSCRIPT'
 #!/bin/sh
-# CyberXP-OS startup script
+# CyberXP-OS startup script - installs packages and starts dashboard
 
-# Enable and start networking
-echo "Configuring network..."
-
-IFACE=""
-for c in eth0 enp0s3 enp0s8 ens33; do
-    if [ -d "/sys/class/net/$c" ]; then IFACE=$c; break; fi
-done
-if [ -z "$IFACE" ]; then
-    IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^(eth|enp|ens)' | head -1)
-fi
-
-if [ -n "$IFACE" ]; then
-    echo "Found interface: $IFACE"
-    
-    # Bring interface up
-    ip link set $IFACE up
-    
-    # Kill any existing udhcpc processes
-    killall udhcpc 2>/dev/null || true
-    
-    # Update /etc/network/interfaces to match detected iface
-    cat > /etc/network/interfaces <<EOFCONF
-auto lo
-iface lo inet loopback
-
-auto $IFACE
-iface $IFACE inet dhcp
-    hostname cyberxp-os
-    udhcpc_opts -t 5 -T 3 -A 1
-EOFCONF
-
-    rc-update add networking default 2>/dev/null || true
-    rc-service networking restart 2>/dev/null || true
-
-    # Start udhcpc with proper flags for VirtualBox compatibility
-    echo "Requesting IPv4 address via DHCP..."
-    udhcpc -i $IFACE -f -n -q -t 5 -T 3 -A 1 || {
-        echo "DHCP foreground failed, trying background mode..."
-        udhcpc -i $IFACE -b -q -t 10 -T 2
-    }
-    
-    # Wait for IP assignment
-    sleep 3
-    
-    # Check if we got IPv4
-    IPV4=$(ip -4 addr show $IFACE | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
-    
-    if [ -n "$IPV4" ]; then
-        echo "✓ Network configured on $IFACE with IP: $IPV4"
-        ip addr show $IFACE | grep inet
-    else
-        echo "⚠ No IPv4 address obtained"
-        echo "Current network status:"
-        ip addr show $IFACE
-        echo ""
-        echo "Try manually: udhcpc -i $IFACE -n"
-    fi
-else
-    echo "⚠ No network interface found"
-fi
-
-# Install packages on first boot
+# Only run setup on first boot
 if [ ! -f /root/.cyberxp-installed ]; then
     echo "Installing CyberXP packages..."
-    apk update
-    # Prefer distro packages first to avoid pip/network fragility
-    apk add python3 py3-pip py3-flask py3-psutil bash nano htop curl git net-tools 2>/dev/null || true
+    apk update >/dev/null 2>&1
+    apk add python3 py3-flask py3-pip bash curl >/dev/null 2>&1 || true
     
     # Fallback to pip if Flask not present
     if ! python3 -c "import flask" 2>/dev/null; then
-        echo "Installing Flask via pip..."
-        pip3 install --break-system-packages Flask 2>/dev/null || pip3 install Flask || true
+        pip3 install --break-system-packages Flask >/dev/null 2>&1 || pip3 install Flask >/dev/null 2>&1 || true
     fi
     
     touch /root/.cyberxp-installed
     echo "✓ CyberXP packages installed"
 fi
 
-# Ensure OpenRC service is registered
-if [ -x /etc/init.d/cyberxp-dashboard ]; then
-    rc-update add cyberxp-dashboard default 2>/dev/null || true
+# Ensure cyberxp-dashboard service file exists (create if missing from overlay)
+if [ ! -f /etc/init.d/cyberxp-dashboard ]; then
+    echo "Creating cyberxp-dashboard service..."
+    cat > /etc/init.d/cyberxp-dashboard <<'SVC'
+#!/sbin/openrc-run
+description="CyberXP Dashboard (Flask)"
+
+command="/usr/bin/env"
+command_args="python3 /opt/cyberxp-dashboard/app.py"
+command_background="yes"
+pidfile="/run/cyberxp-dashboard.pid"
+start_stop_daemon_args="--make-pidfile --pidfile ${pidfile}"
+output_log="/var/log/cyberxp-dashboard.log"
+error_log="/var/log/cyberxp-dashboard.log"
+
+depend() {
+    need net
+    after firewall local
+}
+
+start_pre() {
+    command -v python3 >/dev/null 2>&1 || {
+        eerror "python3 not found"
+        return 1
+    }
+    python3 -c 'import flask' >/dev/null 2>&1 || {
+        eerror "Flask not installed"
+        return 1
+    }
+    mkdir -p /var/log
+}
+SVC
+    chmod +x /etc/init.d/cyberxp-dashboard
+    echo "✓ Service file created"
 fi
 
-# Ensure local scripts run at boot
-if [ -x /etc/init.d/local ]; then
-    rc-update add local default 2>/dev/null || true
-fi
+# Ensure cyberxp-dashboard service is enabled and started
+rc-update add cyberxp-dashboard default >/dev/null 2>&1 || true
 
-# Start dashboard if it exists
-if [ -f /opt/cyberxp-dashboard/app.py ]; then
-    cd /opt/cyberxp-dashboard
-    # Prefer service if available; otherwise background run
-    if rc-service cyberxp-dashboard status >/dev/null 2>&1; then
-        rc-service cyberxp-dashboard restart || rc-service cyberxp-dashboard start
-    else
-        python3 /opt/cyberxp-dashboard/app.py > /var/log/cyberxp-dashboard.log 2>&1 &
-    fi
-    echo "✓ CyberXP Dashboard should be running on port 8080"
-    
-    # Show IP address for dashboard access
-    sleep 2
-    IPV4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
-    if [ -n "$IPV4" ]; then
-        echo "✓ Dashboard available at: http://$IPV4:8080"
-        echo "✓ From host (NAT): Setup port forwarding or use http://localhost:8080"
-    else
-        echo "⚠ No IPv4 - Dashboard running but network needs configuration"
-    fi
+# Start service if not running
+if ! rc-service cyberxp-dashboard status >/dev/null 2>&1; then
+    rc-service cyberxp-dashboard start >/dev/null 2>&1 || true
 fi
 STARTSCRIPT
     chmod +x "$overlay_dir/etc/local.d/cyberxp.start"
@@ -263,7 +210,11 @@ if [ "$PS1" ]; then
     echo "Network Interfaces:"
     ip -br addr show | grep -v "lo.*127.0.0.1" || echo "  No network configured"
     
-    IPV4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+    IPV4=$(ip -4 addr show eth0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+    if [ -z "$IPV4" ]; then
+        IPV4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+    fi
+    
     if [ -n "$IPV4" ]; then
         echo ""
         echo "✓ Dashboard: http://$IPV4:8080"
@@ -271,9 +222,13 @@ if [ "$PS1" ]; then
     else
         echo ""
         echo "⚠ No IPv4 configured. Try:"
-        echo "   • udhcpc -i eth0 -n"
         echo "   • setup-interfaces -r"
+        echo "   • udhcpc -i eth0 -n"
     fi
+    echo ""
+    echo "Service Commands:"
+    echo "   • rc-service cyberxp-dashboard status"
+    echo "   • rc-service cyberxp-dashboard restart"
     echo ""
 fi
 NETSCRIPT
@@ -281,16 +236,15 @@ NETSCRIPT
     
     cat >> "$overlay_dir/etc/motd" <<'EOF'
 
-Quick Start:
-  • Fix IPv4:          udhcpc -i eth0 -n
-  • Configure network: setup-interfaces -r
-  • Install to disk:   setup-alpine
-  • View dashboard:    See IP above
+Network: eth0 should auto-configure via DHCP
 
-Troubleshooting:
-  • Check interface:   ip addr show eth0
-  • Test DHCP:         udhcpc -i eth0 -f -n -v
-  • Manual IP:         ip addr add 10.0.2.15/24 dev eth0
+Commands:
+  • rc-service cyberxp-dashboard status     - Check dashboard
+  • rc-service cyberxp-dashboard start      - Start dashboard
+  • rc-service cyberxp-dashboard restart    - Restart dashboard
+  • tail -f /var/log/cyberxp-dashboard.log  - View logs
+  • setup-interfaces -r                     - Configure network
+  • setup-alpine                            - Install to disk
 
 GitHub: https://github.com/r-abaryan/CyberXP-OS
 EOF
@@ -481,22 +435,35 @@ PYEOF
 #!/sbin/openrc-run
 description="CyberXP Dashboard (Flask)"
 
-# Use /bin/sh to avoid hardcoding python path
-command="/bin/sh"
-command_args="-c 'exec python3 /opt/cyberxp-dashboard/app.py'"
-pidfile="/run/cyberxp-dashboard.pid"
+command="/usr/bin/env"
+command_args="python3 /opt/cyberxp-dashboard/app.py"
 command_background="yes"
+pidfile="/run/cyberxp-dashboard.pid"
+start_stop_daemon_args="--make-pidfile --pidfile ${pidfile}"
+output_log="/var/log/cyberxp-dashboard.log"
+error_log="/var/log/cyberxp-dashboard.log"
 
 depend() {
     need net
-    after firewall
+    after firewall local
+}
+
+start_pre() {
+    command -v python3 >/dev/null 2>&1 || {
+        eerror "python3 not found"
+        return 1
+    }
+    python3 -c 'import flask' >/dev/null 2>&1 || {
+        eerror "Flask not installed"
+        return 1
+    }
+    mkdir -p /var/log
 }
 SVC
     chmod +x "$overlay_dir/etc/init.d/cyberxp-dashboard"
 
     # Enable services in default runlevel via symlinks
     ln -sf /etc/init.d/cyberxp-dashboard "$overlay_dir/etc/runlevels/default/cyberxp-dashboard"
-    # Ensure local.d scripts run on boot as well
     ln -sf /etc/init.d/local "$overlay_dir/etc/runlevels/default/local"
     
     # Package overlay as apkovl tarball
@@ -518,25 +485,19 @@ integrate_overlay_into_iso() {
     local syslinux_cfg="$BUILD_DIR/iso/boot/syslinux/syslinux.cfg"
     local grub_cfg="$BUILD_DIR/iso/boot/grub/grub.cfg"
 
-    # BIOS: Syslinux
+    # BIOS: Syslinux (simple approach from fixed script)
     if [[ -f "$syslinux_cfg" ]]; then
         cp "$syslinux_cfg" "${syslinux_cfg}.bak"
-        # Try to update a default kernel opts variable if present
-        sed -i 's/default_kernel_opts\(.*\)$/default_kernel_opts\1 apkovl=LABEL=CYBERXP_OS:\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
-        # Also patch any explicit append lines
-        sed -i 's/\(\<append\>\.*\)/\1 apkovl=LABEL=CYBERXP_OS:\\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
-        # As a fallback, replace first occurrence of "quiet"
-        sed -i '0,/: quiet/s//: quiet apkovl=LABEL=CYBERXP_OS:\\\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
+        sed -i 's|\(APPEND.*\)|\1 apkovl=/cyberxp.apkovl.tar.gz|' "$syslinux_cfg" 2>/dev/null || true
         log_success "Syslinux updated to load overlay"
     else
         log_warn "syslinux.cfg not found, BIOS path unchanged"
     fi
 
-    # UEFI: GRUB
+    # UEFI: GRUB (simple approach from fixed script)
     if [[ -f "$grub_cfg" ]]; then
         cp "$grub_cfg" "${grub_cfg}.bak"
-        # Append param to linux lines
-        sed -i 's/\(linux\s\+[^\n]*\)$/\1 apkovl=LABEL=CYBERXP_OS:\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$grub_cfg" || true
+        sed -i 's|\(linux.*/boot/vmlinuz.*\)|\1 apkovl=/cyberxp.apkovl.tar.gz|' "$grub_cfg" 2>/dev/null || true
         log_success "GRUB updated to load overlay"
     else
         log_warn "grub.cfg not found, UEFI path unchanged"
@@ -605,10 +566,10 @@ show_summary() {
     echo "  • Or: setup-interfaces -r"
     echo ""
     echo "Features:"
-    echo "  ✓ Enhanced DHCP client with VirtualBox compatibility"
-    echo "  ✓ Auto-network configuration (IPv4 via DHCP)"
+    echo "  ✓ Simple network config (eth0 DHCP) - proven to work"
+    echo "  ✓ Auto-install packages and start dashboard on first boot"
     echo "  ✓ Web dashboard on port 8080 with live network status"
-    echo "  ✓ Troubleshooting commands in MOTD"
+    echo "  ✓ cyberxp-dashboard service (rc-service cyberxp-dashboard status)"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
@@ -621,7 +582,7 @@ main() {
     echo ""
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║        CyberXP-OS Alpine Linux ISO Builder               ║"
-    echo "║         Version 5.1 - IPv4 Network Enhanced              ║"
+    echo "║         Version 6.1 - Combined Working Version           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo ""
     
