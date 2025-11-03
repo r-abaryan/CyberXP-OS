@@ -220,17 +220,28 @@ fi
         rc-service cyberxp-dashboard start >/dev/null 2>&1 || \
             python3 /opt/cyberxp-dashboard/app.py > /var/log/cyberxp-dashboard.log 2>&1 &
         echo "✓ CyberXP Dashboard should be running on port 8080"
-    
-    # Show IP address for dashboard access
-    sleep 2
-    IPV4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
-    if [ -n "$IPV4" ]; then
-        echo "✓ Dashboard available at: http://$IPV4:8080"
-        echo "✓ From host (NAT): Setup port forwarding or use http://localhost:8080"
-    else
-        echo "⚠ No IPv4 - Dashboard running but network needs configuration"
+
+        # Allow inbound 8080 if iptables exists and rule not present (non-fatal)
+        if command -v iptables >/dev/null 2>&1; then
+            iptables -C INPUT -p tcp --dport 8080 -j ACCEPT >/dev/null 2>&1 || \
+                iptables -I INPUT -p tcp --dport 8080 -j ACCEPT >/dev/null 2>&1 || true
+        fi
+
+        # Health check (guest-local)
+        for i in 1 2 3 4 5; do
+            wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1 && { echo "✓ Dashboard health: OK"; break; }
+            sleep 1
+        done
+
+        # Show IP address for dashboard access
+        IPV4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+        if [ -n "$IPV4" ]; then
+            echo "✓ Dashboard available at: http://$IPV4:8080"
+            echo "✓ From host (NAT): Setup port forwarding or use http://localhost:8080"
+        else
+            echo "⚠ No IPv4 - Dashboard running but network needs configuration"
+        fi
     fi
-fi
 STARTSCRIPT
     chmod +x "$overlay_dir/etc/local.d/cyberxp.start"
     
@@ -313,15 +324,16 @@ EOF
     cat > "$overlay_dir/opt/cyberxp-dashboard/app.py" <<'PYEOF'
 from flask import Flask, render_template_string
 import subprocess
+import os
 
 app = Flask(__name__)
 
 def get_network_info():
     try:
-        result = subprocess.run(['ip', '-4', 'addr', 'show'], 
+        result = subprocess.run(['ip', '-4', 'addr', 'show'],
                                capture_output=True, text=True)
         return result.stdout
-    except:
+    except Exception:
         return "Network info unavailable"
 
 HTML = """
@@ -485,8 +497,13 @@ def home():
     network_info = get_network_info()
     return render_template_string(HTML, network_info=network_info)
 
+@app.route('/healthz')
+def healthz():
+    return 'ok', 200
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    port = int(os.environ.get('PORT', '8080'))
+    app.run(host='0.0.0.0', port=port, debug=False)
 PYEOF
     
     # OpenRC service for dashboard
