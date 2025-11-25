@@ -1,4 +1,4 @@
-# CyberXP-OS: AI-Powered Security Linux Distribution
+# 🛡️ CyberXP-OS: AI-Powered Security Linux Distribution
 
 **The world's first AI-powered defensive security operating system.**
 
@@ -6,7 +6,7 @@ Ubuntu 24.04-based Linux distribution with CyberXP AI security agent built-in. B
 
 ---
 
-## 🎯 Vision
+## 🚀 Quick Installation
 
 Traditional security tools are complex, expensive, and require expert knowledge. **CyberXP-OS** changes that:
 
@@ -198,186 +198,94 @@ sudo dd if=cyberxp-os-v1.0.iso of=/dev/sdX bs=4M
 
 ```bash
 # Clone repository
-git clone https://github.com/abaryan/CyberXP-OS
+git clone https://github.com/r-abaryan/CyberXP-OS
 cd CyberXP-OS
 
-# Optional: Clone CyberXP core for AI features
-cd ..
-git clone https://github.com/abaryan/CyberXP
-cd CyberXP-OS
+# Install build dependencies (Linux/WSL)
+sudo apt install wget tar xorriso squashfs-tools syslinux isolinux
 
-# Install build dependencies
-sudo apt install debootstrap squashfs-tools grub-pc-bin grub-efi-amd64-bin xorriso wget tar gzip util-linux
+# Build ISO (requires root)
+sudo ./scripts/build-alpine-iso.sh
 
-# Build Ubuntu-based ISO (requires native Linux - not WSL)
-sudo ./scripts/build-ubuntu-iso.sh
-
-# Output: build/output/cyberxp-os-0.1.0-alpha-ubuntu.iso
-# Time: ~15-20 minutes (depending on internet speed)
+# Output: build/output/cyberxp-os-0.1.0-alpha.iso
 ```
 
-### Development VM
+### Boot & Access
 
-```bash
-# Automated VM setup (VirtualBox)
-./scripts/setup-dev-vm.sh
+1. **Boot ISO in VirtualBox**
+   - Network: Bridged Adapter (recommended) or NAT with port forwarding (8080)
+   - Login: `root` (blank password)
 
-# VM Configuration:
-# - 4GB RAM, 2 CPUs
-# - Port forwarding: 8080 (dashboard), 22 (SSH)
-# - ISO auto-attached if available
+2. **Wait for auto-installation**
+   - Python 3, Flask, PyTorch, and dashboard install automatically
+   - Wait for: `✓ CyberXP Dashboard started on port 8080`
 
-# Start VM
-VBoxManage startvm "CyberXP-OS-Dev"
+3. **Get VM IP**
+   ```sh
+   ip addr
+   ```
 
-# Access dashboard (once booted)
-# http://localhost:8080
-```
-
-### Testing
-
-```bash
-# Run build validation tests
-bash tools/test-build.sh
-
-# Validate configuration
-bash tools/validate-config.sh
-```
+4. **Access Dashboard**
+   - From host: `http://<vm-ip>:8080`
+   - Or with NAT: `http://localhost:8080` (after port forwarding)
 
 ---
 
-## Documentation
+## 📦 Tech Stack
 
-**User Documentation:**
-- [Quick Start Guide](docs/QUICKSTART.md) - Get started in 10 minutes
-- [User Manual](docs/USER_GUIDE.md) - Complete guide (500+ lines)
-- [Installation Guide](docs/INSTALLATION.md) - All installation methods
-- [Configuration Guide](docs/CONFIGURATION.md) - System configuration
-
-**Developer Documentation:**
-- [Building from Source](docs/BUILDING.md) - Build instructions
-- [Technical Architecture](docs/TECHNICAL_ARCHITECTURE.md) - Deep dive (0→100)
-- [Bootloader Guide](docs/BOOTLOADER.md) - GRUB BIOS/UEFI setup
-- [Project Status](docs/PROJECT_STATUS.md) - Current status & roadmap
-- [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
-- [Licenses](LICENSES.md) - Software licenses
+- **Base**: Alpine Linux 3.18.4
+- **Python**: 3.x (auto-installed)
+- **PyTorch**: For AI/ML threat detection
+- **Flask**: Web dashboard (port 8080)
+- **OpenRC**: Service management
+- **Security Tools**: Suricata, fail2ban, iptables
 
 ---
 
-## 🗺️ Roadmap
+## 💻 System Requirements
 
-### Phase 1: MVP Foundation ✅ COMPLETE
-- ✅ Project structure created
-- ✅ Build system (Alpine Linux 3.18.4)
-- ✅ OpenRC init system integration
-- ✅ Flask-based dashboard (lightweight)
-- ✅ Configuration files (firewall, network, hardening)
-- ✅ Security tools integration (Suricata, fail2ban)
-- ✅ Complete documentation (2,000+ lines)
-- ✅ Testing & validation tools
-- 🔄 ISO generation (filesystem ready, bootloader next)
+**Minimum:**
+- CPU: 2 cores (x86_64)
+- RAM: 2GB
+- Disk: 4GB (live mode)
 
-### Phase 2: Bootable System (Next)
-- 📋 GRUB bootloader configuration
-- 📋 Kernel & initramfs setup
-- 📋 UEFI boot support
-- 📋 Live USB testing
-- 📋 Physical hardware compatibility
-- 📋 Auto-start all services on boot
-- 📋 First bootable ISO release
-
-### Phase 3: Enhanced Features
-- 📋 Advanced threat analysis (CyberXP AI integration)
-- 📋 Automated response workflows
-- 📋 SIEM integrations (Splunk, Sentinel, Elastic)
-- 📋 Custom detection rules UI
-- 📋 Report generation
-- 📋 Performance optimization
-- 📋 Beta testing program
-
-### Phase 4: Production Ready
-- 📋 Hardware compatibility testing (10+ devices)
-- 📋 Installer for permanent installation
-- 📋 Update mechanism
-- 📋 Community edition release (v1.0)
-- 📋 Professional edition features
-- 📋 Documentation polish
-
-### Phase 5: Enterprise Features
-- 📋 Fleet management dashboard
-- 📋 Centralized logging & monitoring
-- 📋 Multi-tenant support
-- 📋 Role-based access control
-- 📋 API endpoints for automation
-- 📋 Enterprise edition release
+**Recommended:**
+- CPU: 4 cores
+- RAM: 4GB
+- GPU: Optional (faster AI inference)
 
 ---
 
-## Contributing
+## 🛠️ Features
 
-We welcome contributions! Areas where you can help:
-
-- **Build Scripts**: Improve ISO building process
-- **Hardware Testing**: Test on different hardware
-- **Documentation**: Write guides and tutorials
-- **Security Tools**: Integrate additional tools
-- **UI/UX**: Improve dashboard design
-- **Translations**: Localize to other languages
-
-See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for details.
+- **AI-Powered Threat Detection** - PyTorch-based analysis
+- **Web Dashboard** - Real-time monitoring (Flask)
+- **Network Security** - Suricata IDS/IPS, iptables firewall
+- **Auto-Monitoring** - Continuous security scanning
+- **Live Boot** - Run from ISO/USB without installation
 
 ---
 
-## License
+## 📚 Documentation
 
-**CyberXP-OS**: MIT License  
-**CyberXP Core**: MIT License  
-**Included Tools**: Various (see LICENSES.md)
-
-Free for personal and commercial use.
+- [Quick Start Guide](docs/QUICKSTART.md)
+- [Installation Guide](docs/INSTALLATION.md)
+- [User Manual](docs/USER_GUIDE.md)
 
 ---
 
-## Acknowledgments
+## 📊 Status
 
-Built on the shoulders of giants:
-
-- **Alpine Linux** - Lightweight, secure base
-- **CyberXP** - AI security engine
-- **Suricata** - Network IDS/IPS
-- **Zeek** - Network monitoring
-- **OSQuery** - Endpoint visibility
-
----
-
-
-## 📊 Current Status
-
-**Phase**: Phase 2 ✅ Complete (Bootloader Done!)  
 **Version**: 0.1.0-alpha  
-**Build Status**: **Bootable ISO Ready** 🚀  
-**Next Milestone**: Hardware testing & UEFI support
-
-### What's Working Now:
-- ✅ Alpine Linux 3.18.4 base system
-- ✅ Flask dashboard (port 8080)
-- ✅ OpenRC service management
-- ✅ Security tools (Suricata, fail2ban, iptables)
-- ✅ System hardening configured
-- ✅ Build automation complete
-- ✅ **GRUB bootloader configured** ✨
-- ✅ **Kernel + initramfs setup** ✨
-- ✅ **Bootable ISO generation** ✨
-- ✅ Complete documentation
-
-### What's Next:
-- 🔄 UEFI boot support (BIOS works)
-- 🔄 Physical hardware testing
-- 🔄 Beta release & user testing
+**Status**: Bootable ISO ready  
+**Base**: Alpine Linux 3.18.4
 
 ---
 
-**Last Updated**: October 21, 2025  
-**License**: MIT License  
-**Built for the security community**
+## 📄 License
 
+MIT License - Free for personal and commercial use.
+
+---
+
+**GitHub**: [r-abaryan/CyberXP-OS](https://github.com/r-abaryan/CyberXP-OS)
