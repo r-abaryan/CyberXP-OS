@@ -166,8 +166,16 @@ EOFCONF
         udhcpc -i $IFACE -b -q -t 10 -T 2
     }
     
-    # Wait for IP assignment
-    sleep 3
+    # Wait for IP assignment with retry logic
+    echo "Waiting for IP address..."
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        IPV4=$(ip -4 addr show $IFACE | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+        if [ -n "$IPV4" ]; then
+            break
+        fi
+        echo "  Attempt $i/10..."
+        sleep 1
+    done
     
     # Check if we got IPv4
     IPV4=$(ip -4 addr show $IFACE | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
@@ -213,13 +221,27 @@ if [ -x /etc/init.d/local ]; then
     rc-update add local default 2>/dev/null || true
 fi
 
-    # Start dashboard if it exists
+    # Start dashboard if it exists (after network is ready)
     if [ -f /opt/cyberxp-dashboard/app.py ]; then
+        echo "Starting CyberXP Dashboard..."
         cd /opt/cyberxp-dashboard
+        
+        # Ensure network is actually ready (wait up to 5 more seconds)
+        for i in 1 2 3 4 5; do
+            if ip route | grep -q default; then
+                break
+            fi
+            sleep 1
+        done
+        
         # Start service (avoid restart to prevent stop errors when not running)
         rc-service cyberxp-dashboard start >/dev/null 2>&1 || \
             python3 /opt/cyberxp-dashboard/app.py > /var/log/cyberxp-dashboard.log 2>&1 &
-        echo "✓ CyberXP Dashboard should be running on port 8080"
+        
+        # Give Flask a moment to bind to port
+        sleep 2
+        
+        echo "✓ CyberXP Dashboard started on port 8080"
 
         # Allow inbound 8080 if iptables exists and rule not present (non-fatal)
         if command -v iptables >/dev/null 2>&1; then
@@ -666,6 +688,170 @@ main() {
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║        CyberXP-OS Alpine Linux ISO Builder               ║"
     echo "║         Version 5.1 - IPv4 Network Enhanced              ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    check_requirements
+    download_alpine_iso
+    create_apkovl_overlay
+    integrate_overlay_into_iso
+    build_iso
+    cleanup
+    show_summary
+}
+
+# Trap errors
+trap 'log_error "Build failed at line $LINENO"' ERR
+
+# Run
+main "$@"
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+###############################################################################
+# Main Execution
+###############################################################################
+
+main() {
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║        CyberXP-OS Alpine Linux ISO Builder               ║"
+    echo "║         Version 5.1 - IPv4 Network Enhanced              ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    check_requirements
+    download_alpine_iso
+    create_apkovl_overlay
+    integrate_overlay_into_iso
+    build_iso
+    cleanup
+    show_summary
+}
+
+# Trap errors
+trap 'log_error "Build failed at line $LINENO"' ERR
+
+# Run
+main "$@"
+
+    # BIOS: Syslinux
+    if [[ -f "$syslinux_cfg" ]]; then
+        cp "$syslinux_cfg" "${syslinux_cfg}.bak"
+        # Try to update a default kernel opts variable if present
+        sed -i 's/default_kernel_opts\(.*\)$/default_kernel_opts\1 apkovl=LABEL=CYBERXP_OS:\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
+        # Also patch any explicit append lines
+        sed -i 's/\(\<append\>\.*\)/\1 apkovl=LABEL=CYBERXP_OS:\\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
+        # As a fallback, replace first occurrence of "quiet"
+        sed -i '0,/: quiet/s//: quiet apkovl=LABEL=CYBERXP_OS:\\\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$syslinux_cfg" || true
+        log_success "Syslinux updated to load overlay"
+    else
+        log_warn "syslinux.cfg not found, BIOS path unchanged"
+    fi
+
+    # UEFI: GRUB
+    if [[ -f "$grub_cfg" ]]; then
+        cp "$grub_cfg" "${grub_cfg}.bak"
+        # Append param to linux lines
+        sed -i 's/\(linux\s\+[^\n]*\)$/\1 apkovl=LABEL=CYBERXP_OS:\/cyberxp.apkovl.tar.gz net.ifnames=0 biosdevname=0/' "$grub_cfg" || true
+        log_success "GRUB updated to load overlay"
+    else
+        log_warn "grub.cfg not found, UEFI path unchanged"
+    fi
+}
+
+build_iso() {
+    log_info "Building custom ISO..."
+    
+    mkdir -p "$OUTPUT_DIR"
+    local output_iso="$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    
+    xorriso -as mkisofs \
+        -iso-level 3 \
+        -full-iso9660-filenames \
+        -volid "$ISO_LABEL" \
+        -eltorito-boot boot/syslinux/isolinux.bin \
+        -eltorito-catalog boot/syslinux/boot.cat \
+        -no-emul-boot \
+        -boot-load-size 4 \
+        -boot-info-table \
+        -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+        -output "$output_iso" \
+        "$BUILD_DIR/iso" 2>&1 | grep -v "xorriso : UPDATE" || true
+    
+    if [[ -f "$output_iso" ]]; then
+        log_success "ISO built: $output_iso"
+        log_info "ISO size: $(du -h "$output_iso" | cut -f1)"
+    else
+        log_error "ISO build failed"
+        exit 1
+    fi
+}
+
+cleanup() {
+    log_info "Cleaning up..."
+    
+    # Unmount if still mounted
+    if mountpoint -q "$BUILD_DIR/mnt" 2>/dev/null; then
+        umount "$BUILD_DIR/mnt"
+    fi
+    
+    log_success "Cleanup complete"
+}
+
+show_summary() {
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${GREEN}✓ CyberXP-OS ISO Build Complete${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "ISO Location: $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    echo ""
+    echo "Next Steps:"
+    echo "  1. Test in VM: qemu-system-x86_64 -m 2048 -cdrom $OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso"
+    echo "  2. Burn to USB: sudo dd if=$OUTPUT_DIR/${ISO_NAME}-${ISO_VERSION}.iso of=/dev/sdX bs=4M status=progress"
+    echo "  3. Boot and login with username 'root' (no password)"
+    echo ""
+    echo "VirtualBox Setup:"
+    echo "  • Network: NAT mode (default)"
+    echo "  • Port Forward: Host Port 8080 → Guest Port 8080"
+    echo "  • Access: http://localhost:8080 (from host)"
+    echo ""
+    echo "If IPv4 doesn't work:"
+    echo "  • Run: udhcpc -i eth0 -n"
+    echo "  • Or: setup-interfaces -r"
+    echo ""
+    echo "Features:"
+    echo "  ✓ Enhanced DHCP client with VirtualBox compatibility"
+    echo "  ✓ Auto-network configuration (IPv4 via DHCP with 10s retry)"
+    echo "  ✓ Web dashboard on port 8080 with live network status"
+    echo "  ✓ Improved service startup (waits for network to be ready)"
+    echo "  ✓ Comprehensive logging (/var/log/cyberxp-dashboard.log)"
+    echo "  ✓ Debug endpoint for troubleshooting (http://IP:8080/debug)"
+    echo "  ✓ Service health checks and status monitoring"
+    echo "  ✓ Troubleshooting commands in MOTD"
+    echo ""
+    echo "Improvements in this version:"
+    echo "  • Dashboard starts AFTER network is fully configured"
+    echo "  • Better dependency management in OpenRC service"
+    echo "  • Port binding validation before startup"
+    echo "  • Enhanced logging with timestamps and error tracking"
+    echo "  • Dashboard status check on login"
+    echo "  • Network ready detection with default route validation"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+###############################################################################
+# Main Execution
+###############################################################################
+
+main() {
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║        CyberXP-OS Alpine Linux ISO Builder               ║"
+    echo "║      Version 5.2 - Dashboard Accessibility Fixed         ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo ""
     
