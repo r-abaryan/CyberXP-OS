@@ -559,7 +559,9 @@ def custom_ai_query():
         return
     
     print()
-    print(f"{Colors.YELLOW}Asking AI... (this may take 5-10 seconds){Colors.END}")
+    print(f"{Colors.YELLOW}⏳ Processing AI query...{Colors.END}")
+    print(f"{Colors.DIM}This may take 5-10 seconds on CPU (faster with GPU){Colors.END}")
+    print(f"{Colors.DIM}Please wait...{Colors.END}")
     print()
     
     try:
@@ -567,7 +569,7 @@ def custom_ai_query():
             ['cyberxp-analyze', query],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=120  # Increased to 2 minutes for CPU inference
         )
         
         if result.returncode == 0:
@@ -576,7 +578,13 @@ def custom_ai_query():
             print(f"{Colors.RED}AI query failed{Colors.END}")
             print(result.stderr)
     except subprocess.TimeoutExpired:
-        print(f"{Colors.RED}Query timeout (>30s){Colors.END}")
+        print(f"{Colors.RED}Query timeout (>2 minutes){Colors.END}")
+        print()
+        print(f"{Colors.YELLOW}💡 Tips to speed up AI:{Colors.END}")
+        print(f"  • Increase VM RAM to 8GB+")
+        print(f"  • Increase VM CPUs to 4+")
+        print(f"  • Install on physical machine with GPU")
+        print(f"  • Use shorter/simpler queries")
     except FileNotFoundError:
         print(f"{Colors.RED}AI not properly configured{Colors.END}")
     except Exception as e:
@@ -651,7 +659,9 @@ def analyze_threat():
         return
     
     print()
-    print(f"{Colors.YELLOW}Analyzing... (this may take 5-10 seconds){Colors.END}")
+    print(f"{Colors.YELLOW}⏳ Analyzing threat...{Colors.END}")
+    print(f"{Colors.DIM}This may take 30-60 seconds (faster with GPU){Colors.END}")
+    print(f"{Colors.DIM}Please wait...{Colors.END}")
     print()
     
     try:
@@ -659,7 +669,7 @@ def analyze_threat():
             ['cyberxp-analyze', threat],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=120  # Increased to 2 minutes
         )
         
         if result.returncode == 0:
@@ -668,7 +678,12 @@ def analyze_threat():
             print(f"{Colors.RED}Analysis failed{Colors.END}")
             print(result.stderr)
     except subprocess.TimeoutExpired:
-        print(f"{Colors.RED}Analysis timeout (>30s){Colors.END}")
+        print(f"{Colors.RED}Analysis timeout (>2 minutes){Colors.END}")
+        print()
+        print(f"{Colors.YELLOW}💡 The AI is running but very slow.{Colors.END}")
+        print(f"  • Try shorter threat descriptions")
+        print(f"  • Increase VM resources (8GB RAM, 4+ CPUs)")
+        print(f"  • Install NVIDIA drivers for GPU acceleration")
     except FileNotFoundError:
         print(f"{Colors.RED}cyberxp-analyze command not found{Colors.END}")
         print("Run: sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh")
