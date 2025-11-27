@@ -47,12 +47,18 @@ cd "$INSTALL_DIR"
 
 # Install Python dependencies system-wide
 log_info "Installing Python dependencies..."
+# Install CyberLLM-Agent requirements
 pip3 install --break-system-packages -r requirements.txt || {
-    log_error "Failed to install dependencies"
+    log_warn "Some CyberLLM-Agent dependencies failed, continuing..."
+}
+
+# Ensure LangChain and quantization libraries are installed
+pip3 install --break-system-packages langchain langchain-huggingface bitsandbytes accelerate || {
+    log_error "Failed to install LangChain dependencies"
     exit 1
 }
 
-# Download AI model
+# Download AI model to cache
 log_info "Downloading CyberXP AI model (this may take several minutes)..."
 log_warn "Model size: ~1.2GB - please be patient"
 python3 << 'PYEOF'

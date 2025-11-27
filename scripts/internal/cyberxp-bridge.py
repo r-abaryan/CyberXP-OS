@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-CyberXP Integration Bridge - Fixed Version
-Simple wrapper that works with any LLM backend
+CyberXP Integration Bridge
+Calls CyberLLM-Agent with fallback to direct LLM
 """
 
 import sys
@@ -41,6 +41,11 @@ def main():
             sys.exit(1)
         
         print("🔍 Analyzing threat with CyberXP AI...")
+        print(f"   Threat: {threat}")
+        print(f"   Script: {main_script}")
+        print(f"   Working Dir: {cyberllm_path}")
+        print()
+        print("⏳ This may take 30-120 seconds on CPU...")
         print()
         
         # Call CyberLLM-Agent with proper arguments
@@ -81,39 +86,53 @@ def direct_ai_fallback(threat):
     """
     Direct LLM analysis without Vector DB/RAG
     Used as fallback when the main agent fails
+    Uses 4-bit quantization for speed
     """
     try:
-        print("⏳ Loading AI model directly (this may take a moment)...")
+        print("⏳ Loading AI model with 4-bit quantization (faster)...")
         
         # Import here to avoid slow startup if not needed
         import torch
-        from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+        from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndBytesConfig
         
         model_name = "abaryan/CyberXP_Agent_Llama_3.2_1B"
         
-        # Load model from cache
+        # Configure 4-bit quantization for speed
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4"
+        )
+        
+        # Load model from cache with quantization
+        print("📥 Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        print("📥 Loading quantized model (this will be much faster)...")
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch.float32,
+            quantization_config=quantization_config,
+            device_map="auto",
             low_cpu_mem_usage=True
         )
         
         # Create generation pipeline
+        print("🔧 Creating pipeline...")
         pipe = pipeline(
             "text-generation",
             model=model,
             tokenizer=tokenizer,
-            max_new_tokens=512,
+            max_new_tokens=256,  # Reduced for speed
             temperature=0.7,
             top_p=0.95,
-            repetition_penalty=1.15
+            repetition_penalty=1.15,
+            do_sample=True
         )
         
         # Construct prompt
-        prompt = f"""
-### Instruction:
-You are a cybersecurity expert. Analyze the following threat and provide an assessment including threat type, severity, and recommended actions.
+        prompt = f"""### Instruction:
+You are a cybersecurity expert. Analyze this threat briefly.
 
 ### Input:
 {threat}
@@ -121,6 +140,7 @@ You are a cybersecurity expert. Analyze the following threat and provide an asse
 ### Response:
 """
         # Generate response
+        print("🤖 Generating analysis...")
         result = pipe(prompt)[0]['generated_text']
         
         # Extract just the response part
@@ -134,22 +154,25 @@ You are a cybersecurity expert. Analyze the following threat and provide an asse
         
     except Exception as e:
         print(f"❌ Direct AI Fallback also failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
+# Commented out: Basic rule-based analysis (not needed with AI fallback)
 # def basic_analysis(threat):
 #     """Simple rule-based analysis as fallback"""
 #     print("🔍 Threat Analysis (Basic Mode)")
 #     print()
 #     print(f"Threat Description: {threat}")
 #     print()
-    
+#     
 #     # Simple keyword analysis
 #     threat_lower = threat.lower()
-    
+#     
 #     severity = "Medium"
 #     threat_type = "Unknown"
 #     recommendations = []
-    
+#     
 #     # Detect threat type
 #     if any(word in threat_lower for word in ['phishing', 'email', 'link', 'attachment']):
 #         threat_type = "Phishing Attack"
@@ -203,7 +226,7 @@ You are a cybersecurity expert. Analyze the following threat and provide an asse
 #             "Keep systems updated",
 #             "Enable intrusion detection"
 #         ]
-    
+#     
 #     print(f"Threat Type: {threat_type}")
 #     print(f"Severity: {severity}")
 #     print()
