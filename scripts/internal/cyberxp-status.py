@@ -520,8 +520,7 @@ def main():
                 elif key.lower() == 'l':
                     show_logs()
                 elif key.lower() == 'a':
-                    print(f"\n{Colors.YELLOW}AI analysis requires full installation{Colors.END}")
-                    time.sleep(2)
+                    analyze_threat()
     
     except KeyboardInterrupt:
         clear_screen()
