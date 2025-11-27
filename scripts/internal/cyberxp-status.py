@@ -193,81 +193,38 @@ def display_dashboard():
     gpu = get_gpu_usage()
     disk = get_disk_usage()
     
-    # Header
-    print(f"{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════════════════════════╗{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}                                                                               {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}          {Colors.BOLD}{Colors.GREEN}🛡️  CyberXP-OS{Colors.END} {Colors.BOLD}{Colors.BLUE}Security Platform{Colors.END}                              {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}          {Colors.DIM}Real-time System Monitoring & Analysis{Colors.END}                          {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}                                                                               {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════════════════════════╝{Colors.END}")
-    print()
+    # Compact Header
+    print(f"{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════════╗{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}  {Colors.BOLD}{Colors.GREEN}🛡️  CyberXP-OS{Colors.END} {Colors.BOLD}{Colors.BLUE}Security Platform{Colors.END}                   {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════════╝{Colors.END}")
     
-    # Top row - Progress bars and clock
-    print(f"{Colors.BOLD}SYSTEM HEALTH{Colors.END}                                    {Colors.BOLD}UTC TIME{Colors.END}")
-    print(f"{'─' * 80}")
+    # Current time (compact)
+    now = datetime.now().strftime("%H:%M:%S")
+    print(f"\n{Colors.BOLD}TIME:{Colors.END} {Colors.CYAN}{now}{Colors.END}  {Colors.DIM}|{Colors.END}  {Colors.BOLD}SYSTEM HEALTH{Colors.END}")
+    print(f"{'─' * 65}")
     
-    # CPU Progress
-    cpu_bar = draw_progress_bar(cpu, width=50, label="CPU USAGE", color=Colors.BLUE)
+    # Progress bars (compact - 35 width)
+    print(draw_progress_bar(cpu, width=35, label="CPU", color=Colors.BLUE))
+    print(draw_progress_bar(mem['percent'], width=35, label="RAM", color=Colors.MAGENTA))
+    print(draw_progress_bar(disk['percent'], width=35, label="DISK", color=Colors.YELLOW))
     
-    # Memory Progress
-    mem_bar = draw_progress_bar(mem['percent'], width=50, label="MEMORY USAGE", color=Colors.MAGENTA)
-    
-    # Disk Progress
-    disk_bar = draw_progress_bar(disk['percent'], width=50, label="DISK USAGE", color=Colors.YELLOW)
-    
-    # GPU Progress (if available)
     if gpu['available']:
-        gpu_bar = draw_progress_bar(gpu['usage'], width=50, label="GPU USAGE", color=Colors.GREEN)
+        print(draw_progress_bar(gpu['usage'], width=35, label="GPU", color=Colors.GREEN))
     
-    # Split screen layout
-    clock_lines = draw_big_clock().split('\n')
+    # Compact stats
+    print(f"\n{Colors.BOLD}DETAILS{Colors.END}")
+    print(f"{'─' * 65}")
+    print(f"{Colors.BLUE}CPU:{Colors.END} {cpu:.1f}% ({os.cpu_count()} cores)  {Colors.DIM}|{Colors.END}  {Colors.MAGENTA}RAM:{Colors.END} {mem['used_mb']}MB/{mem['total_mb']}MB")
+    print(f"{Colors.YELLOW}DISK:{Colors.END} {disk['used']}/{disk['total']}  {Colors.DIM}|{Colors.END}  ", end='')
     
-    print(cpu_bar)
-    print(mem_bar)
-    print(disk_bar)
     if gpu['available']:
-        print(gpu_bar)
-    
-    print()
-    print(f"{Colors.BOLD}TIME{Colors.END}")
-    print(f"{'─' * 80}")
-    for line in clock_lines:
-        print(f"  {line}")
-    
-    print()
-    
-    # Bottom row - Detailed stats
-    print(f"{Colors.BOLD}DETAILED METRICS{Colors.END}")
-    print(f"{'─' * 80}")
-    
-    # CPU Details
-    print(f"\n{Colors.BOLD}{Colors.BLUE}CPU{Colors.END}")
-    print(f"  Usage: {cpu:.1f}%")
-    print(f"  Cores: {os.cpu_count()}")
-    
-    # Memory Details
-    print(f"\n{Colors.BOLD}{Colors.MAGENTA}MEMORY{Colors.END}")
-    print(f"  Used:  {mem['used_mb']} MB / {mem['total_mb']} MB")
-    print(f"  Usage: {mem['percent']:.1f}%")
-    
-    # Disk Details
-    print(f"\n{Colors.BOLD}{Colors.YELLOW}DISK{Colors.END}")
-    print(f"  Used:  {disk['used']} / {disk['total']}")
-    print(f"  Usage: {disk['percent']:.1f}%")
-    
-    # GPU Details (if available)
-    if gpu['available']:
-        print(f"\n{Colors.BOLD}{Colors.GREEN}GPU (NVIDIA){Colors.END}")
-        print(f"  Usage: {gpu['usage']:.1f}%")
-        print(f"  VRAM:  {gpu['mem_used']} MB / {gpu['mem_total']} MB")
+        print(f"{Colors.GREEN}GPU:{Colors.END} {gpu['usage']:.1f}% ({gpu['mem_used']}MB/{gpu['mem_total']}MB)")
     else:
-        print(f"\n{Colors.DIM}GPU: Not available (CPU mode){Colors.END}")
+        print(f"{Colors.DIM}GPU: N/A{Colors.END}")
     
     # Footer
-    print()
-    print(f"{'─' * 80}")
-    print(f"{Colors.BOLD}Commands:{Colors.END} {Colors.GREEN}h{Colors.END}-Help  {Colors.GREEN}a{Colors.END}-AI Analysis  {Colors.GREEN}s{Colors.END}-Services  {Colors.GREEN}l{Colors.END}-Logs  {Colors.GREEN}q{Colors.END}-Quit")
-    print(f"{Colors.DIM}Auto-refresh in 5s...{Colors.END}")
+    print(f"\n{'─' * 65}")
+    print(f"{Colors.GREEN}h{Colors.END}-Help {Colors.GREEN}a{Colors.END}-AI {Colors.GREEN}s{Colors.END}-Services {Colors.GREEN}l{Colors.END}-Logs {Colors.GREEN}q{Colors.END}-Quit {Colors.DIM}| Auto-refresh: 5s{Colors.END}")
 
 def show_ai_assistant():
     """Show AI help menu"""
