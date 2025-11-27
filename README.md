@@ -1,291 +1,251 @@
-# 🛡️ CyberXP-OS: AI-Powered Security Linux Distribution
+# CyberXP-OS
 
-**The world's first AI-powered defensive security operating system.**
+**AI-Powered Security Operating System**
 
-Ubuntu 24.04-based Linux distribution with CyberXP AI security agent built-in. Boot, monitor, and defend - no configuration required.
-
----
-
-## 🚀 Quick Installation
-
-Traditional security tools are complex, expensive, and require expert knowledge. **CyberXP-OS** changes that:
-
-- **Boot and Go**: No installation, no configuration
-- **AI-Powered**: Built-in threat assessment and response
-- **User-Friendly**: GUI-first, minimal terminal needed
-- **Self-Defending**: Automatically blocks threats
-- **Free & Open**: Community edition available
+Ubuntu-based Linux distribution with integrated CyberXP AI security agent. Boot, monitor, and defend with minimal configuration.
 
 ---
 
-## Features
+## Quick Start
 
-### Core Capabilities
-- **CyberXP AI Agent** - Multi-agent threat assessment pre-installed
-- **Auto-Monitoring** - Continuous security monitoring on boot
-- **Threat Detection** - IDS/IPS with AI analysis (Suricata + CyberXP)
-- **Network Defense** - Real-time traffic analysis and blocking
-- **IOC Enrichment** - Automatic VirusTotal lookups
-- **SIEM Integration** - Pre-configured Splunk/Sentinel connectors
-- **One-Click Actions** - Block IPs, quarantine files, isolate systems
-
-### User Experience
-- **Lightweight** - Boots in < 10 seconds
-- **GUI Dashboard** - No terminal required for 90% of tasks
-- **Live USB Ready** - Run from USB without installation
-- **VM Optimized** - Perfect for VirtualBox/VMware
-- **Auto-Updates** - Security updates automatically applied
-
-### Use Cases
-- **SOC Workstation** - Analyst desktop environment
-- **Security Appliance** - Network gateway/sensor
-- **Training Lab** - Cybersecurity education
-- **Incident Response** - Bootable IR toolkit
-- **Home Lab** - Personal security monitoring
-
----
-
-## 🚀 Quick Start
-
-### Download & Boot (Coming Soon)
-
-```bash
-# Download ISO
-wget https://downloads.cyberxp-os.com/cyberxp-os-v1.0.iso
-
-# Burn to USB (Linux)
-sudo dd if=cyberxp-os-v1.0.iso of=/dev/sdX bs=4M
-
-# Or use Rufus/Etcher on Windows/Mac
-```
-
-## 🚀 Minimal Quick Start (Alpine ISO)
-
-- Boot ISO in VirtualBox (best: Bridged Adapter; or use NAT + port forward 8080)
-- Login as **root** (press Enter for blank password)
-- First boot will auto-install Python, pip, and dashboard (wait until "✓ CyberXP Dashboard started on port 8080")
-- Find VM IP in Alpine with:
-  ```sh
-  ip addr
-  # or
-  ifconfig
-  ```
-- Access dashboard: `http://<vm-ip>:8080` from your host browser
-- If VM has no IP, set network to **Bridged Adapter** and reboot the VM
-
-## System Requirements
-
-### Minimum
-- **CPU**: 2 cores, x86_64
-- **RAM**: 2GB
-- **Disk**: 4GB (live mode), 8GB (installed)
-- **Network**: Ethernet or WiFi
-
-### Recommended
-- **CPU**: 4 cores, x86_64
-- **RAM**: 4GB
-- **Disk**: 20GB SSD
-- **GPU**: Optional (faster AI inference)
-- **Network**: Gigabit Ethernet
-
-### Supported Hardware
-- Physical machines (UEFI/BIOS)
-- VirtualBox, VMware, KVM
-- Raspberry Pi 4+ (ARM build)
-- Cloud VMs (AWS, Azure, GCP)
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│      Flask Dashboard (http://localhost:8080)        │
-│  ┌──────────┐  ┌────────┐  ┌────────┐  ┌────────┐   │
-│  │ Status   │  │ Alerts │  │  Logs  │  │ Actions│   │
-│  └──────────┘  └────────┘  └────────┘  └────────┘   │
-├─────────────────────────────────────────────────────┤
-│          CyberXP-OS Services (OpenRC)               │
-│  ┌──────────────────────────────────────────────┐   │
-│  │ cyberxp-dashboard (Security monitoring UI)   │   │
-│  │ suricata          (IDS/IPS detection)        │   │
-│  │ fail2ban          (Intrusion prevention)     │   │
-│  │ iptables          (Firewall protection)      │   │
-│  └──────────────────────────────────────────────┘   │
-├─────────────────────────────────────────────────────┤
-│          Security Monitoring Stack                  │
-│  ┌───────────┐  ┌─────────┐  ┌──────────────────┐   │
-│  │ Suricata  │  │ fail2ban│  │  iptables        │   │
-│  │ (IDS/IPS) │  │ (IPS)   │  │  (Firewall)      │   │
-│  └───────────┘  └─────────┘  └──────────────────┘   │
-├─────────────────────────────────────────────────────┤
-│        Alpine Linux 3.18.4 (Hardened Kernel)        │
-│  Init: OpenRC | Firewall: iptables | Shell: bash   │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## What's Included
-
-### Pre-installed Tools
-
-**Web Dashboard (Flask)**
-- Real-time system monitoring
-- Security alerts viewer
-- Service status tracking
-- Log viewer (Suricata, fail2ban, system)
-- Quick actions (block IPs, manage services)
-- Professional, lightweight UI (port 8080)
-
-**Network Security**
-- Suricata (IDS/IPS) ✅
-- iptables/nftables (firewall) ✅
-- tcpdump (packet analysis) ✅
-- fail2ban (intrusion prevention) ✅
-
-**System Security**
-- OpenRC init system ✅
-- Hardened kernel (sysctl) ✅
-- SSH rate limiting ✅
-- Firewall rules pre-configured ✅
-
-**Monitoring & Analysis**
-- htop (process monitoring) ✅
-- iotop (I/O monitoring) ✅
-- nethogs (network monitoring) ✅
-- nmap (network scanning) ✅
-
-**Coming Soon**
-- CyberXP AI integration (optional)
-- Advanced threat analysis
-- SIEM integrations (Splunk, Sentinel)
-- VirusTotal connector
-- Custom detection rules
-
----
-
-## Editions
-
-### Community Edition (FREE)
-- Full CyberXP AI capabilities
-- All security tools included
-- Single-system deployment
-- Community support (Discord/GitHub)
-- Perfect for: Students, home labs, testing
-
-### Professional Edition ($99/year)
-- Everything in Community +
-- Priority updates and patches
-- Email support (48hr SLA)
-- Compliance report templates
-- Perfect for: SOC teams, small businesses
-
-### Enterprise Edition (Custom)
-- Everything in Professional +
-- Multi-system fleet management
-- Centralized dashboard
-- Custom integrations
-- On-premise deployment
-- 24/7 support with SLA
-- Perfect for: Enterprises, MSSPs
-
----
-
-## 🛠️ Development
-
-### Build from Source
+### Installation
 
 ```bash
 # Clone repository
 git clone https://github.com/r-abaryan/CyberXP-OS
 cd CyberXP-OS
 
-# Install build dependencies (Linux/WSL)
-sudo apt install wget tar xorriso squashfs-tools syslinux isolinux
-
-# Build ISO (requires root)
-sudo ./scripts/build-alpine-iso.sh
-
-# Output: build/output/cyberxp-os-0.1.0-alpha.iso
+# Run installer (Ubuntu/Debian)
+sudo ./scripts/install.sh
 ```
 
-### Boot & Access
+**Installer options:**
+1. Dashboard only (Terminal or Web)
+2. Dashboard + AI dependencies (includes CyberLLM-Agent)
 
-1. **Boot ISO in VirtualBox**
-   - Network: Bridged Adapter (recommended) or NAT with port forwarding (8080)
-   - Login: `root` (blank password)
+**Dashboard types:**
+- Terminal: Lightweight CLI monitor
+- Web: Flask dashboard on port 8080
 
-2. **Wait for auto-installation**
-   - Python 3, Flask, PyTorch, and dashboard install automatically
-   - Wait for: `✓ CyberXP Dashboard started on port 8080`
+### Access
 
-3. **Get VM IP**
-   ```sh
-   ip addr
-   ```
+**Terminal dashboard:**
+```bash
+cyberxp
+```
 
-4. **Access Dashboard**
-   - From host: `http://<vm-ip>:8080`
-   - Or with NAT: `http://localhost:8080` (after port forwarding)
-
----
-
-## 📦 Tech Stack
-
-- **Base**: Alpine Linux 3.18.4
-- **Python**: 3.x (auto-installed)
-- **PyTorch**: For AI/ML threat detection
-- **Flask**: Web dashboard (port 8080)
-- **OpenRC**: Service management
-- **Security Tools**: Suricata, fail2ban, iptables
+**Web dashboard:**
+```
+http://localhost:8080
+```
 
 ---
 
-## 💻 System Requirements
+## Features
+
+**Core Capabilities**
+- Real-time system monitoring
+- Security event tracking
+- Service management
+- Log analysis
+- AI threat assessment (optional)
+
+**Security Tools**
+- Network monitoring (Suricata, tcpdump)
+- Intrusion prevention (fail2ban)
+- Firewall management (iptables/ufw)
+- System hardening
+
+**AI Integration** (optional)
+- CyberLLM-Agent for threat analysis
+- IOC extraction and enrichment
+- Automated response recommendations
+- SIEM integration support
+
+---
+
+## System Requirements
 
 **Minimum:**
 - CPU: 2 cores (x86_64)
 - RAM: 2GB
-- Disk: 4GB (live mode)
+- Disk: 8GB
+- Network: Ethernet or WiFi
 
 **Recommended:**
 - CPU: 4 cores
 - RAM: 4GB
-- GPU: Optional (faster AI inference)
+- Disk: 20GB SSD
+- Network: Gigabit Ethernet
+
+**Supported Platforms:**
+- Physical machines (UEFI/BIOS)
+- VirtualBox, VMware, KVM
+- Cloud VMs (AWS, Azure, GCP)
 
 ---
 
-## 🛠️ Features
+## Architecture
 
-- **AI-Powered Threat Detection** - PyTorch-based analysis
-- **Web Dashboard** - Real-time monitoring (Flask)
-- **Network Security** - Suricata IDS/IPS, iptables firewall
-- **Auto-Monitoring** - Continuous security scanning
-- **Live Boot** - Run from ISO/USB without installation
+```
+┌─────────────────────────────────────────┐
+│     Dashboard (Terminal or Web)         │
+├─────────────────────────────────────────┤
+│     CyberXP Services (systemd)          │
+│  • System monitoring                    │
+│  • Security event tracking              │
+│  • Service management                   │
+├─────────────────────────────────────────┤
+│     Optional: CyberLLM-Agent            │
+│  • AI threat analysis                   │
+│  • IOC extraction                       │
+│  • Response recommendations             │
+├─────────────────────────────────────────┤
+│     Ubuntu 24.04 LTS                    │
+└─────────────────────────────────────────┘
+```
 
 ---
 
-## 📚 Documentation
+## Installation Options
 
-- [Quick Start Guide](docs/QUICKSTART.md)
+### Option 1: Direct Installation
+
+Install on existing Ubuntu system:
+
+```bash
+sudo ./scripts/install.sh
+```
+
+Choose:
+1. Dashboard type (Terminal or Web)
+2. Include AI dependencies (optional)
+
+### Option 2: Bootable ISO
+
+Create bootable ISO for deployment:
+
+```bash
+# Install build dependencies
+sudo apt install debootstrap grub-pc-bin grub-efi-amd64-bin \
+  xorriso squashfs-tools
+
+# Build ISO
+sudo ./scripts/iso/build-ubuntu-iso-fixed.sh
+
+# Output: build/output/cyberxp-os-*.iso
+```
+
+### Option 3: Add AI Later
+
+If you installed dashboard-only, add AI capabilities:
+
+```bash
+sudo ./scripts/install-cyberxp-dependencies.sh
+```
+
+---
+
+## Usage
+
+### Terminal Dashboard
+
+```bash
+# Launch dashboard
+cyberxp
+
+# Commands:
+# q - Quit
+# r - Refresh
+# s - Service management
+# l - View logs
+# a - AI threat analysis (if installed)
+```
+
+### Web Dashboard
+
+Access via browser: `http://localhost:8080`
+
+Features:
+- Real-time system metrics
+- Service status monitoring
+- Log viewer
+- Quick actions
+
+### AI Analysis
+
+```bash
+# Analyze threat (if AI installed)
+cyberxp-analyze "Suspicious login from unknown IP"
+```
+
+---
+
+## Project Structure
+
+```
+CyberXP-OS/
+├── scripts/
+│   ├── install.sh                      # Main installer
+│   ├── install-cyberxp-dependencies.sh # AI add-on
+│   ├── iso/                            # ISO builders
+│   └── internal/                       # Helper scripts
+├── config/
+│   └── desktop/cyberxp-dashboard/      # Dashboard files
+└── docs/                               # Documentation
+```
+
+---
+
+## Development
+
+### Build from Source
+
+```bash
+git clone https://github.com/r-abaryan/CyberXP-OS
+cd CyberXP-OS
+sudo ./scripts/install.sh
+```
+
+### Create Custom ISO
+
+```bash
+sudo ./scripts/iso/build-ubuntu-iso-fixed.sh
+```
+
+---
+
+## Documentation
+
 - [Installation Guide](docs/INSTALLATION.md)
 - [User Manual](docs/USER_GUIDE.md)
+- [API Documentation](docs/API.md)
 
 ---
 
-## 📊 Status
+## Tech Stack
 
-**Version**: 0.1.0-alpha  
-**Status**: Bootable ISO ready  
-**Base**: Alpine Linux 3.18.4
+- **Base**: Ubuntu 24.04 LTS
+- **Init**: systemd
+- **Dashboard**: Python + Flask (web) or CLI (terminal)
+- **AI Engine**: CyberLLM-Agent (optional)
+- **Security**: Suricata, fail2ban, iptables, ufw
 
 ---
 
-## 📄 License
+## License
 
 MIT License - Free for personal and commercial use.
 
 ---
 
-**GitHub**: [r-abaryan/CyberXP-OS](https://github.com/r-abaryan/CyberXP-OS)
+## Links
+
+- **GitHub**: [r-abaryan/CyberXP-OS](https://github.com/r-abaryan/CyberXP-OS)
+- **AI Engine**: [r-abaryan/CyberLLM-Agent](https://github.com/r-abaryan/CyberLLM-Agent)
+- **Issues**: [GitHub Issues](https://github.com/r-abaryan/CyberXP-OS/issues)
+
+---
+
+**Version**: 0.1.0-alpha  
+**Status**: Active Development

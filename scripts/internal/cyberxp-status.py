@@ -265,6 +265,7 @@ def display_dashboard():
     print(f"  {Colors.GREEN}r{Colors.END} - Refresh")
     print(f"  {Colors.GREEN}s{Colors.END} - Service management")
     print(f"  {Colors.GREEN}l{Colors.END} - View logs")
+    print(f"  {Colors.GREEN}a{Colors.END} - AI threat analysis")
     print()
     print(f"{Colors.CYAN}Auto-refresh in 5 seconds... (Press any key to refresh now){Colors.END}")
 
@@ -309,6 +310,58 @@ def show_logs():
     print()
     input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
 
+def analyze_threat():
+    """Analyze a threat using CyberLLM-Agent"""
+    clear_screen()
+    print_header()
+    print_section("AI Threat Analysis")
+    print()
+    
+    # Check if CyberLLM is installed
+    if not os.path.exists('/opt/cyberxp-ai/src/cyber_agent_vec.py'):
+        print(f"{Colors.RED}CyberLLM-Agent not installed{Colors.END}")
+        print()
+        print("To install:")
+        print(f"  {Colors.GREEN}sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh{Colors.END}")
+        print()
+        input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+        return
+    
+    print("Enter threat description (or 'q' to cancel):")
+    print()
+    threat = input(f"{Colors.BOLD}Threat: {Colors.END}").strip()
+    
+    if threat.lower() == 'q' or not threat:
+        return
+    
+    print()
+    print(f"{Colors.YELLOW}Analyzing... (this may take 5-10 seconds){Colors.END}")
+    print()
+    
+    try:
+        result = subprocess.run(
+            ['cyberxp-analyze', threat],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            print(result.stdout)
+        else:
+            print(f"{Colors.RED}Analysis failed{Colors.END}")
+            print(result.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.RED}Analysis timeout (>30s){Colors.END}")
+    except FileNotFoundError:
+        print(f"{Colors.RED}cyberxp-analyze command not found{Colors.END}")
+        print("Run: sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh")
+    except Exception as e:
+        print(f"{Colors.RED}Error: {str(e)}{Colors.END}")
+    
+    print()
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+
 def main():
     """Main dashboard loop"""
     try:
@@ -336,6 +389,8 @@ def main():
                     show_service_menu()
                 elif key.lower() == 'l':
                     show_logs()
+                elif key.lower() == 'a':
+                    analyze_threat()
     
     except KeyboardInterrupt:
         clear_screen()

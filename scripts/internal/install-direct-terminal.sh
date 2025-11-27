@@ -98,13 +98,25 @@ install_status_monitor() {
     
     # Create install directory
     mkdir -p "$INSTALL_DIR"
+    mkdir -p /opt/cyberxp/scripts
     
     # Copy status script
-    if [[ -f "scripts/cyberxp-status.py" ]]; then
-        cp scripts/cyberxp-status.py "$STATUS_SCRIPT"
+    if [[ -f "scripts/internal/cyberxp-status.py" ]]; then
+        cp scripts/internal/cyberxp-status.py "$STATUS_SCRIPT"
     else
-        log_error "Status script not found at scripts/cyberxp-status.py"
+        log_error "Status script not found at scripts/internal/cyberxp-status.py"
         exit 1
+    fi
+    
+    # Copy integration bridge
+    if [[ -f "scripts/internal/cyberxp-bridge.py" ]]; then
+        cp scripts/internal/cyberxp-bridge.py /opt/cyberxp/scripts/
+    fi
+    
+    # Copy CyberLLM install script
+    if [[ -f "scripts/install-cyberxp-dependencies.sh" ]]; then
+        cp scripts/install-cyberxp-dependencies.sh /opt/cyberxp/scripts/
+        chmod +x /opt/cyberxp/scripts/install-cyberxp-dependencies.sh
     fi
     
     # Make executable
@@ -166,6 +178,7 @@ show_summary() {
     echo "    ✓ Real-time system monitoring"
     echo "    ✓ Service management"
     echo "    ✓ Log viewing"
+    echo "    ✓ AI threat analysis (optional)"
     echo "    ✓ Lightweight (no web server)"
     echo ""
     echo "  Usage:"
@@ -173,10 +186,14 @@ show_summary() {
     echo "    Press 'q' to quit, 'r' to refresh"
     echo "    Press 's' for service management"
     echo "    Press 'l' to view logs"
+    echo "    Press 'a' for AI analysis (after installing CyberLLM)"
+    echo ""
+    echo "  Optional: Install AI Analysis Engine"
+    echo "    sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh"
     echo ""
     echo "  Next Steps:"
     echo "    1. Run: cyberxp"
-    echo "    2. Add your CyberXP AI code to $INSTALL_DIR"
+    echo "    2. (Optional) Install AI: sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh"
     echo "    3. Customize as needed"
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
