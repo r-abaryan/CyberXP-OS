@@ -249,7 +249,7 @@ DEBIAN_FRONTEND=noninteractive apt install -y \
 
 # Install Python packages
 echo "Installing Python packages..."
-pip3 install --break-system-packages \
+pip3 install --break-system-packages --ignore-installed \
     Flask==3.0.0 \
     Werkzeug==3.0.1 \
     psutil==5.9.0 || {

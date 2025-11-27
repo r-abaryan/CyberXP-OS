@@ -116,20 +116,14 @@ install_python_packages() {
     log_info "Installing Python packages..."
     
     # Install Flask and dependencies
-    pip3 install --break-system-packages \
+    # Use --ignore-installed to avoid conflicts with Debian packages
+    pip3 install --break-system-packages --ignore-installed \
         Flask==3.0.0 \
         Werkzeug==3.0.1 \
         psutil==5.9.0 \
         requests || {
-        log_warn "Some Python packages failed to install, trying without --break-system-packages..."
-        pip3 install \
-            Flask==3.0.0 \
-            Werkzeug==3.0.1 \
-            psutil==5.9.0 \
-            requests || {
-            log_error "Failed to install Python packages"
-            exit 1
-        }
+        log_error "Failed to install Python packages"
+        exit 1
     }
     
     log_success "Python packages installed"

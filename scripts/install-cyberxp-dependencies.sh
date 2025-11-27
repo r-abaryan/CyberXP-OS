@@ -40,8 +40,10 @@ fi
 cd "$INSTALL_DIR"
 
 log_info "Installing Python dependencies..."
-pip3 install --break-system-packages -r requirements.txt 2>/dev/null || \
-    pip3 install -r requirements.txt
+pip3 install --break-system-packages --ignore-installed -r requirements.txt || {
+    log_error "Failed to install dependencies"
+    exit 1
+}
 
 log_info "Installing integration bridge..."
 cp /opt/cyberxp/scripts/cyberxp-bridge.py /usr/local/bin/cyberxp-analyze
