@@ -59,13 +59,14 @@ def main():
         if result.returncode == 0 and result.stdout:
             print(result.stdout)
         else:
-            print("❌ AI Analysis failed")
-            print()
+            # Vector/RAG analysis failed, try direct fallback
+            print("⚠️  Vector Analysis failed. Attempting direct LLM fallback...")
             if result.stderr:
-                print("Error details:")
-                print(result.stderr)
-            sys.exit(1)
-    
+                print(f"   (Error: {result.stderr.strip()})")
+            print()
+            
+            direct_ai_fallback(threat)
+            
     except subprocess.TimeoutExpired:
         print("❌ Error: Analysis timeout (>2 minutes)")
         print()
@@ -74,6 +75,65 @@ def main():
         sys.exit(1)
     except Exception as e:
         print(f"❌ Error: {str(e)}")
+        sys.exit(1)
+
+def direct_ai_fallback(threat):
+    """
+    Direct LLM analysis without Vector DB/RAG
+    Used as fallback when the main agent fails
+    """
+    try:
+        print("⏳ Loading AI model directly (this may take a moment)...")
+        
+        # Import here to avoid slow startup if not needed
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+        
+        model_name = "abaryan/CyberXP_Agent_Llama_3.2_1B"
+        
+        # Load model from cache
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True
+        )
+        
+        # Create generation pipeline
+        pipe = pipeline(
+            "text-generation",
+            model=model,
+            tokenizer=tokenizer,
+            max_new_tokens=512,
+            temperature=0.7,
+            top_p=0.95,
+            repetition_penalty=1.15
+        )
+        
+        # Construct prompt
+        prompt = f"""
+### Instruction:
+You are a cybersecurity expert. Analyze the following threat and provide an assessment including threat type, severity, and recommended actions.
+
+### Input:
+{threat}
+
+### Response:
+"""
+        # Generate response
+        result = pipe(prompt)[0]['generated_text']
+        
+        # Extract just the response part
+        response = result.split("### Response:")[-1].strip()
+        
+        print("\n🔍 Direct AI Analysis Result:")
+        print("──────────────────────────────────────────────────")
+        print(response)
+        print("──────────────────────────────────────────────────")
+        sys.exit(0)
+        
+    except Exception as e:
+        print(f"❌ Direct AI Fallback also failed: {str(e)}")
         sys.exit(1)
 
 # def basic_analysis(threat):

@@ -47,7 +47,6 @@ cd "$INSTALL_DIR"
 
 # Install Python dependencies system-wide
 log_info "Installing Python dependencies..."
-pip3 install --break-system-packages --upgrade pip
 pip3 install --break-system-packages -r requirements.txt || {
     log_error "Failed to install dependencies"
     exit 1
@@ -122,13 +121,11 @@ echo ""
 echo "  Location: $INSTALL_DIR"
 echo "  Model: CyberXP_Agent_Llama_3.2_1B (cached)"
 echo ""
-echo "  Usage:"
-echo "    cyberxp-analyze \"Ransomware detected on file server\""
-echo "    analyze \"Suspicious login from unknown IP\""
+echo "  CLI Usage (Direct):"
+echo "    cyberxp-analyze \"Suspicious login from unknown IP\""
 echo ""
-echo "  Direct usage:"
-echo "    cd $INSTALL_DIR"
-echo "    python3 src/cyber_agent_vec.py --threat \"...\" --enable_ioc"
+echo "  Dashboard Usage (Menu):"
+echo "    cyberxp  (then press 'a' for AI Assistant)"
 echo ""
 echo "  Web UI:"
 echo "    cd $INSTALL_DIR/HF_Space"

@@ -231,7 +231,8 @@ def show_ai_assistant():
     clear_screen()
     
     # Check if AI is installed
-    ai_installed = os.path.exists('/opt/cyberxp-ai') or os.path.exists('/usr/local/bin/cyberxp-analyze')
+    # Check if CyberLLM-Agent is installed (check for actual script)
+    ai_installed = os.path.exists('/opt/cyberxp-ai/src/cyber_agent_vec.py') and os.path.exists('/usr/local/bin/cyberxp-analyze')
     
     print(f"{Colors.BOLD}{Colors.CYAN}🤖 AI Assistant{Colors.END}")
     print()
