@@ -229,23 +229,228 @@ def display_dashboard():
 def show_ai_assistant():
     """Show AI help menu"""
     clear_screen()
+    
+    # Check if AI is installed
+    ai_installed = os.path.exists('/opt/cyberxp-ai') or os.path.exists('/usr/local/bin/cyberxp-analyze')
+    
     print(f"{Colors.BOLD}{Colors.CYAN}🤖 AI Assistant{Colors.END}")
     print()
-    print("1 - Troubleshoot issues")
-    print("2 - Explain error")
-    print("3 - Service help")
-    print("4 - Security tips")
-    print("5 - Ask AI (requires AI installation)")
-    print("b - Back")
+    
+    if not ai_installed:
+        print(f"{Colors.YELLOW}AI not installed yet.{Colors.END}")
+        print()
+        print("To install AI capabilities:")
+        print(f"  {Colors.GREEN}sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh{Colors.END}")
+        print()
+        print("Or reinstall with AI:")
+        print(f"  {Colors.GREEN}sudo ./scripts/install.sh{Colors.END}")
+        print("  Choose option 2 (Dashboard + AI)")
+        print()
+        input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+        return
+    
+    print(f"{Colors.GREEN}✓ AI Available{Colors.END}")
+    print()
+    print("1 - Troubleshoot system issues")
+    print("2 - Explain error message")
+    print("3 - Service management help")
+    print("4 - Security best practices")
+    print("5 - Ask AI anything (custom query)")
+    print("6 - Threat analysis")
+    print("b - Back to dashboard")
     print()
     
     choice = input(f"{Colors.BOLD}Choice: {Colors.END}").strip()
     
     if choice == 'b':
         return
+    elif choice == '1':
+        troubleshoot_issues()
+    elif choice == '2':
+        explain_error()
+    elif choice == '3':
+        service_help()
+    elif choice == '4':
+        security_tips()
+    elif choice == '5':
+        custom_ai_query()
+    elif choice == '6':
+        analyze_threat()
+
+def troubleshoot_issues():
+    """Provide troubleshooting guidance"""
+    clear_screen()
+    print(f"{Colors.BOLD}{Colors.CYAN}🔧 System Troubleshooting{Colors.END}")
+    print()
+    print(f"{Colors.YELLOW}Analyzing system...{Colors.END}")
+    print()
     
-    print(f"\n{Colors.YELLOW}AI assistant features available after full installation{Colors.END}")
-    input(f"\n{Colors.BOLD}Press Enter to continue...{Colors.END}")
+    # Simple issue detection
+    mem = get_memory_usage()
+    disk = get_disk_usage()
+    
+    issues_found = False
+    
+    if mem['percent'] > 90:
+        issues_found = True
+        print(f"{Colors.RED}● High memory usage: {mem['percent']:.1f}%{Colors.END}")
+        print(f"  Solution: Check processes with 'htop' and kill heavy ones")
+        print()
+    
+    if disk['percent'] > 90:
+        issues_found = True
+        print(f"{Colors.RED}● Disk almost full: {disk['percent']:.1f}%{Colors.END}")
+        print(f"  Solution: Clean up with 'sudo apt clean && sudo apt autoremove'")
+        print()
+    
+    if not issues_found:
+        print(f"{Colors.GREEN}✓ No critical issues detected!{Colors.END}")
+        print()
+    
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+
+def explain_error():
+    """Explain error messages"""
+    clear_screen()
+    print(f"{Colors.BOLD}{Colors.CYAN}📝 Error Explanation{Colors.END}")
+    print()
+    print("Paste your error message (or 'q' to cancel):")
+    print()
+    error = input(f"{Colors.BOLD}Error: {Colors.END}").strip()
+    
+    if error.lower() == 'q' or not error:
+        return
+    
+    print()
+    print(f"{Colors.YELLOW}Analyzing...{Colors.END}")
+    print()
+    
+    # Common error patterns
+    if 'permission denied' in error.lower():
+        print(f"{Colors.BOLD}Explanation:{Colors.END} Insufficient permissions")
+        print(f"{Colors.BOLD}Solution:{Colors.END} Try with sudo: sudo <command>")
+    elif 'command not found' in error.lower():
+        print(f"{Colors.BOLD}Explanation:{Colors.END} Command not installed")
+        print(f"{Colors.BOLD}Solution:{Colors.END} Install package or check spelling")
+    elif 'no space left' in error.lower():
+        print(f"{Colors.BOLD}Explanation:{Colors.END} Disk is full")
+        print(f"{Colors.BOLD}Solution:{Colors.END} Free space: sudo apt clean && sudo apt autoremove")
+    else:
+        print(f"{Colors.YELLOW}Error not in database. Try Google or check logs.{Colors.END}")
+    
+    print()
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+
+def service_help():
+    """Service management help"""
+    clear_screen()
+    print(f"{Colors.BOLD}{Colors.CYAN}⚙️ Service Management Guide{Colors.END}")
+    print()
+    print(f"{Colors.BOLD}Common Commands:{Colors.END}")
+    print()
+    print(f"  Start:   {Colors.GREEN}sudo systemctl start <service>{Colors.END}")
+    print(f"  Stop:    {Colors.GREEN}sudo systemctl stop <service>{Colors.END}")
+    print(f"  Restart: {Colors.GREEN}sudo systemctl restart <service>{Colors.END}")
+    print(f"  Status:  {Colors.GREEN}sudo systemctl status <service>{Colors.END}")
+    print(f"  Enable:  {Colors.GREEN}sudo systemctl enable <service>{Colors.END}")
+    print(f"  Logs:    {Colors.GREEN}sudo journalctl -u <service> -f{Colors.END}")
+    print()
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+
+def security_tips():
+    """Security best practices"""
+    clear_screen()
+    print(f"{Colors.BOLD}{Colors.CYAN}🔒 Security Best Practices{Colors.END}")
+    print()
+    print("1. Change default passwords")
+    print("2. Enable firewall: sudo ufw enable")
+    print("3. Keep system updated: sudo apt update && sudo apt upgrade")
+    print("4. Monitor logs: sudo journalctl -f")
+    print("5. Use SSH keys instead of passwords")
+    print("6. Disable root login via SSH")
+    print()
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+
+def custom_ai_query():
+    """Custom AI query"""
+    clear_screen()
+    print(f"{Colors.BOLD}{Colors.CYAN}🤖 Ask AI Anything{Colors.END}")
+    print()
+    print("What would you like to know? (or 'q' to cancel)")
+    print()
+    query = input(f"{Colors.BOLD}Question: {Colors.END}").strip()
+    
+    if query.lower() == 'q' or not query:
+        return
+    
+    print()
+    print(f"{Colors.YELLOW}⏳ Processing...{Colors.END}")
+    print(f"{Colors.DIM}This may take 30-60 seconds on CPU{Colors.END}")
+    print()
+    
+    try:
+        result = subprocess.run(
+            ['cyberxp-analyze', query],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0:
+            print(result.stdout)
+        else:
+            print(f"{Colors.RED}Query failed{Colors.END}")
+            print(result.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.RED}Timeout (>2 min). Try shorter query.{Colors.END}")
+    except FileNotFoundError:
+        print(f"{Colors.RED}AI not configured. Run:{Colors.END}")
+        print(f"  sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh")
+    except Exception as e:
+        print(f"{Colors.RED}Error: {str(e)}{Colors.END}")
+    
+    print()
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
+
+def analyze_threat():
+    """Analyze threat"""
+    clear_screen()
+    print(f"{Colors.BOLD}{Colors.CYAN}🔍 Threat Analysis{Colors.END}")
+    print()
+    print("Describe the threat (or 'q' to cancel):")
+    print()
+    threat = input(f"{Colors.BOLD}Threat: {Colors.END}").strip()
+    
+    if threat.lower() == 'q' or not threat:
+        return
+    
+    print()
+    print(f"{Colors.YELLOW}⏳ Analyzing...{Colors.END}")
+    print(f"{Colors.DIM}This may take 30-60 seconds{Colors.END}")
+    print()
+    
+    try:
+        result = subprocess.run(
+            ['cyberxp-analyze', threat],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0:
+            print(result.stdout)
+        else:
+            print(f"{Colors.RED}Analysis failed{Colors.END}")
+            print(result.stderr)
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.RED}Timeout. Try shorter description.{Colors.END}")
+    except FileNotFoundError:
+        print(f"{Colors.RED}AI not configured{Colors.END}")
+    except Exception as e:
+        print(f"{Colors.RED}Error: {str(e)}{Colors.END}")
+    
+    print()
+    input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
 
 def show_services():
     """Show service management"""
