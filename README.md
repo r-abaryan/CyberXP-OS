@@ -6,6 +6,10 @@ Ubuntu-based Linux distribution with integrated CyberXP AI security agent. Boot,
 
 ---
 
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+
 ## Quick Start
 
 ### Installation
