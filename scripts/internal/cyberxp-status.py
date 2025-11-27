@@ -225,8 +225,11 @@ def detect_issues():
 def print_header():
     """Print professional dashboard header"""
     print(f"{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════════════╗{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}  {Colors.BOLD}🛡️  CyberXP-OS Security Platform{Colors.END}                              {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
-    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}  {Colors.DIM}AI-Powered Monitoring & Threat Analysis{Colors.END}                     {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}                                                                   {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}     {Colors.BOLD}{Colors.GREEN}🛡️  CyberXP-OS{Colors.END} {Colors.BOLD}{Colors.BLUE}Security Platform{Colors.END}                       {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}     {Colors.DIM}AI-Powered Monitoring & Threat Analysis{Colors.END}                   {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}     {Colors.DIM}Version 0.1.0-alpha{Colors.END}                                       {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
+    print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}                                                                   {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
     print(f"{Colors.BOLD}{Colors.CYAN}╚═══════════════════════════════════════════════════════════════════╝{Colors.END}")
     print()
 
