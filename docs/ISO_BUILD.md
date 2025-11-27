@@ -443,20 +443,94 @@ build/ubuntu/iso/
 
 ### 8. Bootloader Setup
 
+**Script location:** `setup_bootloader()` function
+
 **Updates initramfs:**
 ```bash
+# Inside chroot
 update-initramfs -u -k all
 ```
 
-**Generates GRUB config:**
+**What this does:**
+- Regenerates initial ramdisk for all installed kernels
+- Includes necessary drivers and modules
+- Creates `/boot/initrd.img-*` files
+- Required for system boot
+
+**Verify initramfs created:**
 ```bash
+ls -lh build/ubuntu/rootfs/boot/initrd.img-*
+# Should show file ~50-100MB
+```
+
+**Generates GRUB configuration:**
+```bash
+# Inside chroot
+update-grub
+# Or manually:
 grub-mkconfig -o /boot/grub/grub.cfg
 ```
 
+**GRUB config file created:**
+```
+/boot/grub/grub.cfg
+```
+
+**Config includes:**
+- Kernel boot entries
+- Recovery mode options
+- Memory test options
+- Kernel parameters
+
 **Verifies kernel files:**
-Checks for:
-- `/boot/vmlinuz-*` (kernel)
-- `/boot/initrd.img-*` (initial ramdisk)
+
+Script checks for required boot files:
+```bash
+# Kernel
+ls build/ubuntu/rootfs/boot/vmlinuz-*
+# Example: vmlinuz-6.8.0-48-generic
+
+# Initramfs
+ls build/ubuntu/rootfs/boot/initrd.img-*
+# Example: initrd.img-6.8.0-48-generic
+```
+
+**If kernel missing:**
+```bash
+# Error shown:
+ERROR: Kernel installation failed in chroot
+No kernel found in /boot
+
+# Manual fix:
+sudo chroot build/ubuntu/rootfs /bin/bash
+apt install -y linux-image-generic
+update-initramfs -u -k all
+exit
+```
+
+**Boot files created:**
+```
+/boot/
+├── vmlinuz-6.8.0-48-generic      # Linux kernel (~10MB)
+├── initrd.img-6.8.0-48-generic   # Initial ramdisk (~50MB)
+├── System.map-6.8.0-48-generic   # Kernel symbol map
+├── config-6.8.0-48-generic       # Kernel build config
+└── grub/
+    ├── grub.cfg                  # GRUB configuration
+    ├── grubenv                   # GRUB environment
+    └── fonts/                    # GRUB fonts
+```
+
+**GRUB modules installed:**
+```
+/boot/grub/i386-pc/       # BIOS boot modules
+/boot/grub/x86_64-efi/    # UEFI boot modules
+```
+
+**Important:** Script does NOT install GRUB to a device (no `/dev/loop0` or `/dev/sda`). This is intentional because:
+1. We're building an ISO, not installing to disk
+2. `grub-mkrescue` handles bootloader embedding later
+3. Device installation would fail in build environment
 
 ### 9. Create ISO Structure
 
