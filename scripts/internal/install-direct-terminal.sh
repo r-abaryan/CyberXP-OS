@@ -126,7 +126,7 @@ install_status_monitor() {
 }
 
 create_alias() {
-    log_info "Creating command alias..."
+    log_info "Creating command alias and auto-launch..."
     
     # Add alias to bashrc for all users
     cat >> /etc/bash.bashrc <<'EOF'
@@ -134,9 +134,17 @@ create_alias() {
 # CyberXP-OS Status Monitor
 alias cyberxp='sudo /usr/local/bin/cyberxp-status'
 alias cyberxp-status='sudo /usr/local/bin/cyberxp-status'
+
+# Auto-launch CyberXP dashboard on login (only for interactive shells)
+if [[ $- == *i* ]] && [[ -z "$CYBERXP_LAUNCHED" ]] && [[ -n "$SSH_CONNECTION" || "$USER" == "cyberxp" ]]; then
+    export CYBERXP_LAUNCHED=1
+    echo "Launching CyberXP Dashboard..."
+    sleep 1
+    cyberxp
+fi
 EOF
     
-    log_success "Alias created (use 'cyberxp' command)"
+    log_success "Alias and auto-launch configured"
 }
 
 configure_motd() {
@@ -179,7 +187,14 @@ show_summary() {
     echo "    ✓ Service management"
     echo "    ✓ Log viewing"
     echo "    ✓ AI threat analysis (optional)"
+    echo "    ✓ Auto-launch on login"
     echo "    ✓ Lightweight (no web server)"
+    echo ""
+    echo "  Auto-Launch:"
+    echo "    Dashboard will automatically launch when you:"
+    echo "    • SSH into the system"
+    echo "    • Login as 'cyberxp' user"
+    echo "    • Press 'q' to exit, login again to restart"
     echo ""
     echo "  Usage:"
     echo "    Run 'cyberxp' to open status monitor"
@@ -192,9 +207,10 @@ show_summary() {
     echo "    sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh"
     echo ""
     echo "  Next Steps:"
-    echo "    1. Run: cyberxp"
-    echo "    2. (Optional) Install AI: sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh"
-    echo "    3. Customize as needed"
+    echo "    1. Logout and login again (dashboard auto-launches)"
+    echo "    2. Or run: cyberxp"
+    echo "    3. (Optional) Install AI: sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh"
+    echo "    4. Customize as needed"
     echo ""
     echo "═══════════════════════════════════════════════════════════════"
 }
