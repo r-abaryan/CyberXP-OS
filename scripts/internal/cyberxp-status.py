@@ -110,6 +110,63 @@ def get_disk_usage():
         pass
     return {'used': '0G', 'total': '0G', 'percent': 0}
 
+def get_firewall_status():
+    """Get firewall (ufw) status"""
+    try:
+        result = subprocess.run(['sudo', '-n', 'ufw', 'status'], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            output = result.stdout.lower()
+            if 'status: active' in output:
+                # Count rules
+                rules = len([line for line in result.stdout.split('\n') if line.strip() and not line.startswith('Status') and not line.startswith('To') and not line.startswith('-')])
+                return {'active': True, 'rules': max(0, rules - 1)}
+            else:
+                return {'active': False, 'rules': 0}
+    except:
+        pass
+    return {'active': False, 'rules': 0}
+
+def get_open_ports():
+    """Get count of listening ports"""
+    try:
+        result = subprocess.run(['ss', '-tuln'], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            # Count LISTEN states
+            listening = len([line for line in lines if 'LISTEN' in line])
+            return listening
+    except:
+        pass
+    return 0
+
+def get_failed_logins():
+    """Get recent failed login attempts"""
+    try:
+        # Try to read auth.log for failed attempts
+        result = subprocess.run(['sudo', '-n', 'grep', '-c', 'Failed password', '/var/log/auth.log'], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            return int(result.stdout.strip())
+    except:
+        pass
+    return 0
+
+def get_security_updates():
+    """Check for security updates"""
+    try:
+        # Check for updates without updating cache (faster)
+        result = subprocess.run(['apt', 'list', '--upgradable'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            # Filter security updates
+            security = len([line for line in lines if 'security' in line.lower()])
+            total = max(0, len(lines) - 1)  # Exclude header
+            return {'security': security, 'total': total}
+    except:
+        pass
+    return {'security': 0, 'total': 0}
+
 def draw_progress_bar(percent, width=40, label="", color=Colors.CYAN):
     """Draw a progress bar with label"""
     filled = int(width * percent / 100)
@@ -193,6 +250,12 @@ def display_dashboard():
     gpu = get_gpu_usage()
     disk = get_disk_usage()
     
+    # Get security stats
+    firewall = get_firewall_status()
+    open_ports = get_open_ports()
+    failed_logins = get_failed_logins()
+    security_updates = get_security_updates()
+    
     # Compact Header
     print(f"{Colors.BOLD}{Colors.CYAN}╔═══════════════════════════════════════════════════════════════╗{Colors.END}")
     print(f"{Colors.BOLD}{Colors.CYAN}║{Colors.END}  {Colors.BOLD}{Colors.GREEN}🛡️  CyberXP-OS{Colors.END} {Colors.BOLD}{Colors.BLUE}Security Platform{Colors.END}                   {Colors.BOLD}{Colors.CYAN}║{Colors.END}")
@@ -221,6 +284,70 @@ def display_dashboard():
         print(f"{Colors.GREEN}GPU:{Colors.END} {gpu['usage']:.1f}% ({gpu['mem_used']}MB/{gpu['mem_total']}MB)")
     else:
         print(f"{Colors.DIM}GPU: N/A{Colors.END}")
+    
+    # Security Status Section
+    print(f"\n{Colors.BOLD}🔒 SECURITY & FIREWALL{Colors.END}")
+    print(f"{'─' * 65}")
+    
+    # Firewall Status
+    if firewall['active']:
+        fw_status = f"{Colors.GREEN}● ACTIVE{Colors.END}"
+        fw_icon = "🟢"
+    else:
+        fw_status = f"{Colors.RED}● INACTIVE{Colors.END}"
+        fw_icon = "🔴"
+    
+    print(f"{fw_icon} {Colors.BOLD}Firewall:{Colors.END} {fw_status}  {Colors.DIM}|{Colors.END}  {Colors.CYAN}Rules:{Colors.END} {firewall['rules']}")
+    
+    # Open Ports
+    port_color = Colors.GREEN if open_ports < 10 else (Colors.YELLOW if open_ports < 20 else Colors.RED)
+    print(f"🔌 {Colors.BOLD}Open Ports:{Colors.END} {port_color}{open_ports}{Colors.END}  {Colors.DIM}|{Colors.END}  ", end='')
+    
+    # Failed Logins
+    if failed_logins == 0:
+        login_status = f"{Colors.GREEN}0 (Secure){Colors.END}"
+        login_icon = "✓"
+    elif failed_logins < 5:
+        login_status = f"{Colors.YELLOW}{failed_logins} (Monitor){Colors.END}"
+        login_icon = "⚠"
+    else:
+        login_status = f"{Colors.RED}{failed_logins} (Alert!){Colors.END}"
+        login_icon = "⚠"
+    
+    print(f"{login_icon} {Colors.BOLD}Failed Logins:{Colors.END} {login_status}")
+    
+    # Security Updates
+    if security_updates['security'] > 0:
+        update_status = f"{Colors.RED}{security_updates['security']} critical{Colors.END}"
+        update_icon = "⚠"
+    elif security_updates['total'] > 0:
+        update_status = f"{Colors.YELLOW}{security_updates['total']} available{Colors.END}"
+        update_icon = "📦"
+    else:
+        update_status = f"{Colors.GREEN}Up to date{Colors.END}"
+        update_icon = "✓"
+    
+    print(f"{update_icon} {Colors.BOLD}Updates:{Colors.END} {update_status}")
+    
+    # Security Score (simple calculation)
+    security_score = 0
+    if firewall['active']:
+        security_score += 40
+    if failed_logins < 5:
+        security_score += 30
+    if security_updates['security'] == 0:
+        security_score += 20
+    if open_ports < 15:
+        security_score += 10
+    
+    # Security score bar
+    score_color = Colors.GREEN if security_score >= 80 else (Colors.YELLOW if security_score >= 60 else Colors.RED)
+    score_label = "EXCELLENT" if security_score >= 80 else ("GOOD" if security_score >= 60 else "NEEDS ATTENTION")
+    
+    print(f"\n{Colors.BOLD}Security Score:{Colors.END} {score_color}{security_score}/100{Colors.END} {Colors.DIM}({score_label}){Colors.END}")
+    filled = int(30 * security_score / 100)
+    bar = '█' * filled + '░' * (30 - filled)
+    print(f"[{score_color}{bar}{Colors.END}]")
     
     # Footer
     print(f"\n{'─' * 65}")
