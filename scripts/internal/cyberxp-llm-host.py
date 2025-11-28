@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
 """
-CyberXP Integration Bridge
-Calls CyberLLM-Agent with fallback to direct LLM
-Supports LangChain agents and system health analysis
+CyberXP LLM Host Bridge with LangChain Agents
+Analyzes security threats and can execute recommended actions using AI agents
 """
 
 import sys
-import os
+import requests
+import json
 import subprocess
-import time
 from datetime import datetime
 
 # LangChain imports
 try:
-    from langchain.agents import AgentExecutor, initialize_agent, AgentType
+    from langchain.agents import AgentExecutor, create_openai_functions_agent
     from langchain.tools import Tool
     from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain_core.language_models.llms import LLM
+    from langchain_core.callbacks import CallbackManagerForLLMRun
+    from typing import Optional, List, Any
     LANGCHAIN_AVAILABLE = True
 except ImportError:
     LANGCHAIN_AVAILABLE = False
+    print("⚠️  LangChain not installed. Install with: pip install langchain langchain-core")
+    print("   Falling back to basic mode...")
+
+API_HOST = "10.0.2.2"  # VirtualBox NAT host IP
+API_PORT = 5000
+API_URL = f"http://{API_HOST}:{API_PORT}"
 
 def execute_command(command, description):
     """Execute security command with logging"""
@@ -91,9 +99,11 @@ def quarantine_file_tool(file_path: str) -> str:
     cmd = f"sudo mkdir -p /tmp/quarantine && sudo mv {file_path} /tmp/quarantine/"
     return execute_command(cmd, f"Quarantine file: {file_path}")
 
+# System health monitoring tools for agent
 def get_cpu_usage_tool() -> str:
-    """Get current CPU usage percentage"""
+    """Get current CPU usage percentage. No input needed."""
     try:
+        import time
         with open('/proc/stat', 'r') as f:
             line = f.readline()
             fields = line.split()
@@ -113,7 +123,7 @@ def get_cpu_usage_tool() -> str:
         return f"Error getting CPU: {str(e)}"
 
 def get_memory_usage_tool() -> str:
-    """Get current memory usage"""
+    """Get current memory usage. No input needed."""
     try:
         meminfo = {}
         with open('/proc/meminfo', 'r') as f:
@@ -130,7 +140,7 @@ def get_memory_usage_tool() -> str:
         return f"Error getting memory: {str(e)}"
 
 def get_disk_usage_tool() -> str:
-    """Get disk usage"""
+    """Get disk usage for root partition. No input needed."""
     try:
         result = subprocess.run(['df', '-h', '/'], capture_output=True, text=True, timeout=2)
         lines = result.stdout.strip().split('\n')
@@ -142,7 +152,7 @@ def get_disk_usage_tool() -> str:
         return f"Error getting disk: {str(e)}"
 
 def get_firewall_status_tool() -> str:
-    """Get firewall status"""
+    """Get firewall (ufw) status. No input needed."""
     try:
         result = subprocess.run(['sudo', '-n', 'ufw', 'status'], capture_output=True, text=True, timeout=2)
         if result.returncode == 0:
@@ -159,7 +169,7 @@ def get_firewall_status_tool() -> str:
         return f"Error getting firewall: {str(e)}"
 
 def get_open_ports_tool() -> str:
-    """Get count of open/listening ports"""
+    """Get count of open/listening ports. No input needed."""
     try:
         result = subprocess.run(['ss', '-tuln'], capture_output=True, text=True, timeout=2)
         if result.returncode == 0:
@@ -171,7 +181,7 @@ def get_open_ports_tool() -> str:
         return f"Error getting ports: {str(e)}"
 
 def get_failed_logins_tool() -> str:
-    """Get count of failed login attempts"""
+    """Get count of failed login attempts. No input needed."""
     try:
         result = subprocess.run(['sudo', '-n', 'grep', '-c', 'Failed password', '/var/log/auth.log'], 
                               capture_output=True, text=True, timeout=2)
@@ -183,7 +193,7 @@ def get_failed_logins_tool() -> str:
         return f"Error getting failed logins: {str(e)}"
 
 def get_security_updates_tool() -> str:
-    """Check for pending security updates"""
+    """Check for pending security updates. No input needed."""
     try:
         result = subprocess.run(['apt', 'list', '--upgradable'], 
                               capture_output=True, text=True, timeout=5)
@@ -197,14 +207,50 @@ def get_security_updates_tool() -> str:
         return f"Error getting updates: {str(e)}"
 
 def enable_firewall_tool() -> str:
-    """Enable firewall (ufw)"""
+    """Enable firewall (ufw). No input needed."""
     cmd = "sudo ufw enable"
     return execute_command(cmd, "Enable firewall")
 
 def update_system_tool() -> str:
-    """Update system packages (security updates)"""
+    """Update system packages (security updates). No input needed."""
     cmd = "sudo apt update && sudo apt upgrade -y"
     return execute_command(cmd, "Update system packages")
+
+def check_ssh_config_tool() -> str:
+    """Check SSH security configuration. No input needed."""
+    issues = []
+    try:
+        # Check if SSH allows root login
+        result = subprocess.run(['grep', '-i', '^PermitRootLogin', '/etc/ssh/sshd_config'], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            if 'yes' in result.stdout.lower():
+                issues.append("SSH allows root login (security risk)")
+            else:
+                issues.append("SSH root login: disabled (secure)")
+        else:
+            issues.append("SSH root login: default (may allow)")
+        
+        # Check if password authentication is enabled
+        result = subprocess.run(['grep', '-i', '^PasswordAuthentication', '/etc/ssh/sshd_config'], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            if 'yes' in result.stdout.lower():
+                issues.append("SSH password authentication enabled (consider keys)")
+            else:
+                issues.append("SSH password auth: disabled (using keys - secure)")
+        else:
+            issues.append("SSH password auth: default (may allow)")
+        
+        # Check SSH service status
+        result = subprocess.run(['systemctl', 'is-active', 'ssh'], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            issues.append(f"SSH service: {result.stdout.strip()}")
+        
+        return "SSH Configuration:\n" + "\n".join(f"  - {issue}" for issue in issues) if issues else "SSH Configuration: OK"
+    except Exception as e:
+        return f"Error checking SSH config: {str(e)}"
 
 def get_system_health():
     """Collect system health and security status"""
@@ -220,6 +266,7 @@ def get_system_health():
     
     # CPU usage
     try:
+        import time
         with open('/proc/stat', 'r') as f:
             line = f.readline()
             fields = line.split()
@@ -356,13 +403,45 @@ Issues Detected:"""
     
     return report
 
+# Custom LLM wrapper for API
+if LANGCHAIN_AVAILABLE:
+    class CyberXPLLM(LLM):
+        api_url: str = API_URL
+        
+        @property
+        def _llm_type(self) -> str:
+            return "cyberxp"
+        
+        def _call(
+            self,
+            prompt: str,
+            stop: Optional[List[str]] = None,
+            run_manager: Optional[CallbackManagerForLLMRun] = None,
+            **kwargs: Any,
+        ) -> str:
+            try:
+                response = requests.post(
+                    f"{self.api_url}/generate",
+                    json={"prompt": prompt},
+                    timeout=120
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    return data.get('response', '')
+                raise Exception(f"API error: {response.status_code}")
+            except Exception as e:
+                raise Exception(f"LLM API call failed: {str(e)}")
+
 def analyze_system_health():
-    """Let agent analyze system health using its tools"""
-    print("🤖 Agent will investigate system health and propose fixes")
+    """Let AI agent investigate system health using its tools"""
+    print("🤖 AI Agent System Troubleshooting")
+    print()
+    print("The agent will perform a complete security and health diagnostic.")
+    print("⚠️  If critical issues are found, you will be prompted for immediate action.")
     print()
     
-    # Ask user if they want AI to analyze
-    print("Would you like AI agent to investigate system health? (y/n): ", end='')
+    # Ask user if they want AI to investigate
+    print("Start complete system diagnostic? (y/n): ", end='')
     choice = input().strip().lower()
     
     if choice not in ['y', 'yes']:
@@ -370,19 +449,53 @@ def analyze_system_health():
         return
     
     print()
-    print("⏳ Agent investigating system...")
+    print("⏳ Agent running complete diagnostic...")
+    print("   Checking: Firewall, ports, logins, updates, SSH, CPU, memory, disk...")
     print()
     
-    # Let agent investigate - it will use tools to gather data and decide actions
-    threat_desc = "Investigate system health and security status. Check CPU, memory, disk, firewall, open ports, failed logins, and security updates. Identify any issues and propose fixes."
+    # Very explicit checklist for agent - must check ALL crucial items
+    threat_desc = """Perform a COMPLETE system security and health diagnostic. You MUST check ALL of the following:
+
+CRITICAL SECURITY CHECKS (MANDATORY):
+1. Firewall status - use get_firewall_status tool
+2. Open ports count - use get_open_ports tool  
+3. Failed login attempts - use get_failed_logins tool
+4. Security updates - use get_security_updates tool
+5. SSH configuration - use check_ssh_config tool (check root login, password auth)
+6. Network connections - use check_connections tool
+7. System logs - use check_logs tool for suspicious activity
+
+SYSTEM HEALTH CHECKS (MANDATORY):
+8. CPU usage - use get_cpu_usage tool
+9. Memory usage - use get_memory_usage tool
+10. Disk usage - use get_disk_usage tool
+
+After gathering ALL this data (all 10 checks), analyze the results and:
+
+IMMEDIATE ACTION REQUIRED if you find:
+- Firewall is INACTIVE → This is CRITICAL, prompt user immediately
+- Multiple failed logins (>5) → Possible attack, prompt user immediately
+- Critical security updates pending → Prompt user to update immediately
+- SSH allows root login → Security risk, prompt user immediately
+- High CPU/Memory (>90%) → System may be compromised, prompt user immediately
+
+PROCESS:
+1. Check all 10 items first
+2. Identify which issues require IMMEDIATE action
+3. If immediate action needed, STOP and PROMPT USER: "⚠️ IMMEDIATE ACTION REQUIRED: [issue]. Would you like me to fix this now? (y/n)"
+4. Wait for user approval before proceeding
+5. After immediate actions, continue with other fixes
+6. Propose fixes for ALL remaining issues
+7. Prioritize critical security issues first
+
+Do NOT skip any checks. This is a complete diagnostic. You must use all 10 tools listed above."""
     
-    # Use direct AI fallback with agent mode
     if LANGCHAIN_AVAILABLE:
-        direct_ai_fallback(threat_desc, use_agent=True, auto_mode=False)
+        return run_agent_mode(threat_desc, auto_mode=False)
     else:
         print("⚠️  LangChain not available. Install with: pip install langchain langchain-core")
         print("   Falling back to basic analysis...")
-        direct_ai_fallback(threat_desc, use_agent=False, auto_mode=False)
+        return run_original_mode(threat_desc, auto_mode=False)
 
 def main():
     auto_mode = '--auto' in sys.argv or '-y' in sys.argv
@@ -421,231 +534,209 @@ def main():
     
     threat = ' '.join(sys.argv[1:])
     
-    # Check if CyberLLM-Agent is installed
-    cyberllm_path = os.environ.get('CYBERXP_AI_PATH', '/opt/cyberxp-ai')
-    
-    if not os.path.exists(cyberllm_path):
-        print("❌ Error: CyberLLM-Agent not installed")
-        print()
-        print("To install:")
-        print("  sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh")
+    # Use LangChain agent if available and requested
+    if use_agent and LANGCHAIN_AVAILABLE:
+        return run_agent_mode(threat, auto_mode)
+    elif use_agent and not LANGCHAIN_AVAILABLE:
+        print("❌ Error: --agent requires LangChain. Install with: pip install langchain langchain-core")
         sys.exit(1)
     
-    # Try to use AI
+    # Original mode (backward compatible)
+    return run_original_mode(threat, auto_mode)
+
+def run_agent_mode(threat, auto_mode):
+    """Run with LangChain agent for intelligent reasoning"""
+    print("🤖 Agent Mode: Using LangChain for intelligent threat response")
+    print(f"   Threat: {threat}")
+    print()
+    
+    # Create tools - agent can use these to gather data and take actions
+    tools = [
+        # Security actions
+        Tool(name="block_ip", func=block_ip_tool, description="Block an IP address using firewall. Input: IP address as string"),
+        Tool(name="check_logs", func=check_logs_tool, description="Check system logs. Input: service name (e.g., 'ssh') or 'all' for all logs"),
+        Tool(name="stop_service", func=stop_service_tool, description="Stop a systemd service. Input: service name (e.g., 'ssh', 'apache2')"),
+        Tool(name="check_connections", func=check_connections_tool, description="Check active network connections. Input: optional port number (e.g., '22') or empty for all"),
+        Tool(name="quarantine_file", func=quarantine_file_tool, description="Move suspicious file to quarantine. Input: file path"),
+        
+        # System health monitoring tools
+        Tool(name="get_cpu_usage", func=get_cpu_usage_tool, description="Get current CPU usage percentage. No input needed."),
+        Tool(name="get_memory_usage", func=get_memory_usage_tool, description="Get current memory usage. No input needed."),
+        Tool(name="get_disk_usage", func=get_disk_usage_tool, description="Get disk usage for root partition. No input needed."),
+        Tool(name="get_firewall_status", func=get_firewall_status_tool, description="Get firewall (ufw) status. No input needed."),
+        Tool(name="get_open_ports", func=get_open_ports_tool, description="Get count of open/listening ports. No input needed."),
+        Tool(name="get_failed_logins", func=get_failed_logins_tool, description="Get count of failed login attempts. No input needed."),
+        Tool(name="get_security_updates", func=get_security_updates_tool, description="Check for pending security updates. No input needed."),
+        Tool(name="check_ssh_config", func=check_ssh_config_tool, description="Check SSH security configuration (root login, password auth). No input needed."),
+        
+        # System maintenance tools
+        Tool(name="enable_firewall", func=enable_firewall_tool, description="Enable firewall (ufw). No input needed."),
+        Tool(name="update_system", func=update_system_tool, description="Update system packages including security updates. No input needed."),
+    ]
+    
+    # Create agent prompt
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are a cybersecurity analyst agent. Analyze threats and take appropriate actions.
+
+Available tools:
+Security Actions:
+- block_ip: Block malicious IP addresses
+- check_logs: Investigate system logs  
+- stop_service: Stop compromised services
+- check_connections: Monitor network connections
+- quarantine_file: Isolate suspicious files
+
+System Health Monitoring (use ALL for complete diagnostic):
+- get_cpu_usage: Check CPU usage
+- get_memory_usage: Check memory usage
+- get_disk_usage: Check disk space
+- get_firewall_status: Check firewall status (CRITICAL - check FIRST)
+- get_open_ports: Count open/listening ports (CRITICAL)
+- get_failed_logins: Count failed login attempts (CRITICAL - check FIRST)
+- get_security_updates: Check for pending security updates (CRITICAL - check FIRST)
+- check_ssh_config: Check SSH security configuration - root login, password auth (CRITICAL)
+- check_connections: Check network connections
+- check_logs: Check system logs for suspicious activity
+
+System Maintenance:
+- enable_firewall: Enable firewall (use if firewall is INACTIVE)
+- update_system: Update system packages (use if security updates pending)
+
+IMPORTANT: When performing system health diagnostics:
+1. You MUST check ALL monitoring tools to get complete picture
+2. Do NOT skip any checks - this is a comprehensive diagnostic
+3. Check firewall, ports, failed logins, security updates, and SSH config FIRST (critical security)
+4. Then check CPU, memory, disk (system health)
+5. Review logs and connections if issues found
+6. Analyze ALL results together
+
+IMMEDIATE ACTION DETECTION:
+- If firewall is INACTIVE → This is CRITICAL, STOP and PROMPT USER immediately
+- If failed logins > 5 → Possible attack, STOP and PROMPT USER immediately  
+- If critical security updates pending → STOP and PROMPT USER immediately
+- If SSH allows root login → Security risk, STOP and PROMPT USER immediately
+- If CPU/Memory > 90% → System may be compromised, STOP and PROMPT USER immediately
+
+When you detect immediate action needed:
+1. STOP your current process
+2. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
+3. Explain why it's critical
+4. Ask: "Would you like me to fix this now? (y/n)"
+5. Wait for user response before continuing
+6. If user approves, take action immediately
+7. Then continue with remaining checks and fixes
+
+After immediate actions (if any):
+8. Propose fixes for ALL remaining issues
+9. Prioritize critical security fixes first
+10. For SSH issues: recommend disabling root login and password auth if enabled
+
+For system health investigation, you MUST use all relevant monitoring tools.
+For critical threats, act immediately. For suspicious but uncertain threats, investigate first."""),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("human", "{input}"),
+        MessagesPlaceholder(variable_name="agent_scratchpad"),
+    ])
+    
+    # Initialize LLM
+    llm = CyberXPLLM()
+    
+    # Create agent using ReAct pattern
+    # Increase max_iterations for complete diagnostics (need to check 9+ items)
+    max_iters = 15 if "system health" in threat.lower() or "diagnostic" in threat.lower() else 5
+    
     try:
-        import subprocess
-        
-        main_script = f"{cyberllm_path}/src/cyber_agent_vec.py"
-        
-        if not os.path.exists(main_script):
-            print(f"❌ Error: {main_script} not found")
-            print()
-            print("CyberLLM-Agent installation appears incomplete.")
-            print("Reinstall with: sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh")
-            sys.exit(1)
-        
-        print("🔍 Analyzing threat with CyberXP AI...")
-        print(f"   Threat: {threat}")
-        print(f"   Script: {main_script}")
-        print(f"   Working Dir: {cyberllm_path}")
-        print()
-        print("⏳ This may take 30-120 seconds on CPU...")
-        print()
-        
-        # Call CyberLLM-Agent with proper arguments
-        result = subprocess.run(
-            [
-                'python3', main_script,
-                '--threat', threat,
-                '--enable_ioc'
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=cyberllm_path
+        from langchain.agents import initialize_agent, AgentType
+        agent_executor = initialize_agent(
+            tools=tools,
+            llm=llm,
+            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+            verbose=not auto_mode,
+            max_iterations=max_iters,
+            handle_parsing_errors="Check your output and make sure it conforms!"
         )
-        
-        if result.returncode == 0 and result.stdout:
-            print(result.stdout)
-        else:
-            # Vector/RAG analysis failed, try direct fallback
-            print("⚠️  Vector Analysis failed. Attempting direct LLM fallback...")
-            if result.stderr:
-                print(f"   (Error: {result.stderr.strip()})")
-            print()
-            
-            # Check if agent mode requested
-            use_agent_flag = '--agent' in sys.argv or use_agent
-            direct_ai_fallback(threat, use_agent=use_agent_flag, auto_mode=auto_mode)
-            
-    except subprocess.TimeoutExpired:
-        print("❌ Error: Analysis timeout (>2 minutes)")
+    except ImportError:
+        # Fallback for older LangChain versions
+        from langchain.agents import AgentExecutor, create_react_agent
+        from langchain import hub
+        try:
+            prompt_template = hub.pull("hwchase17/react")
+        except:
+            # Use default prompt if hub not available
+            from langchain.agents import create_prompt
+            prompt_template = create_prompt(tools)
+        agent = create_react_agent(llm, tools, prompt_template)
+        agent_executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=not auto_mode,
+            max_iterations=max_iters,
+            handle_parsing_errors="Check your output and make sure it conforms!"
+        )
+    
+    # Execute
+    print("⏳ Agent analyzing and responding...")
+    print("=" * 60)
+    
+    try:
+        result = agent_executor.invoke({
+            "input": f"Security threat: {threat}. Analyze and respond appropriately.",
+            "chat_history": []
+        })
+        print("\n" + "=" * 60)
+        print("✅ Agent analysis complete")
+        print(f"\nResult: {result.get('output', 'N/A')}")
+    except Exception as e:
+        print(f"\n❌ Error: {str(e)}")
+        sys.exit(1)
+
+def run_original_mode(threat, auto_mode):
+    """Original mode: Get analysis from API and execute actions"""
+    # Check API health
+    try:
+        response = requests.get(f"{API_URL}/health", timeout=5)
+        if response.status_code != 200:
+            print("❌ Error: LLM API server not ready")
+            print("Make sure llm-api-server.py is running on Windows host")
+            sys.exit(1)
+    except requests.exceptions.ConnectionError:
+        print("❌ Error: Cannot connect to LLM API server")
+        print(f"   Expected at: {API_URL}")
         print()
-        print("The AI model may be too slow on this system.")
-        print("Try increasing VM resources or using a shorter threat description.")
+        print("Make sure:")
+        print("  1. llm-api-server.py is running on Windows host")
+        print("  2. Windows Firewall allows port 5000")
+        print("  3. VirtualBox network is configured (NAT or Host-only)")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         sys.exit(1)
-
-def direct_ai_fallback(threat, use_agent=False, auto_mode=False):
-    """
-    Direct LLM analysis without Vector DB/RAG
-    Uses CyberXP fine-tuned model with LangChain for cybersecurity triage
-    Supports agent mode for intelligent tool usage
-    """
+    
+    # Call API for analysis
+    print("🔍 Analyzing threat with CyberXP AI...")
+    print(f"   Threat: {threat}")
+    print(f"   API: {API_URL}")
+    print()
+    print("⏳ This may take 30-120 seconds...")
+    print()
+    
     try:
-        print("⏳ Loading CyberXP AI model (8-bit quantized)...")
-        print("   This may take 15-25 seconds...")
-        
-        # Import here to avoid slow startup if not needed
-        import torch
-        from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, pipeline
-        from langchain_huggingface import HuggingFacePipeline
-        from langchain.prompts import PromptTemplate
-        from langchain.chains import LLMChain
-        
-        model_name = "abaryan/CyberXP_Agent_Llama_3.2_1B"
-        
-        # Configure 8-bit quantization (more compatible than 4-bit)
-        quantization_config = BitsAndBytesConfig(
-            load_in_8bit=True,
-            llm_int8_threshold=6.0
+        response = requests.post(
+            f"{API_URL}/generate",
+            json={"prompt": threat},
+            timeout=120
         )
         
-        # Load model with quantization
-        print("📥 Loading tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-        print("📥 Loading quantized model...")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=quantization_config,
-            device_map="auto",
-            low_cpu_mem_usage=True
-        )
-        
-        print("🔧 Creating LangChain pipeline...")
-        
-        # Create HuggingFace pipeline
-        pipe = pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            max_new_tokens=200,
-            temperature=0.7,
-            top_p=0.9,
-            do_sample=True
-        )
-        
-        # Wrap with LangChain
-        llm = HuggingFacePipeline(pipeline=pipe)
-        
-        # Agent mode with tools
-        if use_agent and LANGCHAIN_AVAILABLE:
-            print("🤖 Agent Mode: Using tools for intelligent response")
-            print()
+        if response.status_code == 200:
+            data = response.json()
             
-            # Create tools - agent can use these to gather data and take actions
-            tools = [
-                # Security actions
-                Tool(name="block_ip", func=block_ip_tool, description="Block an IP address using firewall. Input: IP address as string"),
-                Tool(name="check_logs", func=check_logs_tool, description="Check system logs. Input: service name (e.g., 'ssh') or 'all' for all logs"),
-                Tool(name="stop_service", func=stop_service_tool, description="Stop a systemd service. Input: service name (e.g., 'ssh', 'apache2')"),
-                Tool(name="check_connections", func=check_connections_tool, description="Check active network connections. Input: optional port number (e.g., '22') or empty for all"),
-                Tool(name="quarantine_file", func=quarantine_file_tool, description="Move suspicious file to quarantine. Input: full file path"),
-                
-                # System health monitoring tools
-                Tool(name="get_cpu_usage", func=get_cpu_usage_tool, description="Get current CPU usage percentage. No input needed."),
-                Tool(name="get_memory_usage", func=get_memory_usage_tool, description="Get current memory usage. No input needed."),
-                Tool(name="get_disk_usage", func=get_disk_usage_tool, description="Get disk usage for root partition. No input needed."),
-                Tool(name="get_firewall_status", func=get_firewall_status_tool, description="Get firewall (ufw) status. No input needed."),
-                Tool(name="get_open_ports", func=get_open_ports_tool, description="Get count of open/listening ports. No input needed."),
-                Tool(name="get_failed_logins", func=get_failed_logins_tool, description="Get count of failed login attempts. No input needed."),
-                Tool(name="get_security_updates", func=get_security_updates_tool, description="Check for pending security updates. No input needed."),
-                
-                # System maintenance tools
-                Tool(name="enable_firewall", func=enable_firewall_tool, description="Enable firewall (ufw). No input needed."),
-                Tool(name="update_system", func=update_system_tool, description="Update system packages including security updates. No input needed."),
-            ]
-            
-            # Create agent
-            agent_executor = initialize_agent(
-                tools=tools,
-                llm=llm,
-                agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                verbose=not auto_mode,
-                max_iterations=5,
-                handle_parsing_errors="Check your output and make sure it conforms!"
-            )
-            
-            # Execute agent
-            print("⏳ Agent analyzing and responding...")
-            print("=" * 60)
-            
-            try:
-                result = agent_executor.run(
-                    f"Security threat: {threat}. Analyze and respond appropriately."
-                )
-                print("\n" + "=" * 60)
-                print("✅ Agent analysis complete")
-                print(f"\nResult: {result}")
-            except Exception as e:
-                print(f"\n❌ Agent error: {str(e)}")
-                print("Falling back to simple analysis...")
-                use_agent = False
-        
-        # Simple chain mode (fallback or non-agent)
-        if not use_agent:
-            # Create prompt template for cybersecurity triage
-            template = """### Instruction:
-You are a cybersecurity analyst. Analyze the threat and provide actionable security responses.
-Your response must be valid JSON only, with no other text.
-
-JSON Schema:
-{{
-    "analysis": "Brief analysis of the threat/situation",
-    "severity": "Low/Medium/High/Critical",
-    "recommended_actions": [
-        {{
-            "command": "Exact shell command (e.g., 'sudo ufw deny from 192.168.1.100')",
-            "description": "What this command does",
-            "type": "firewall|service|log|monitor|block_ip|quarantine|alert",
-            "requires_confirmation": true/false
-        }}
-    ],
-    "immediate_threat": true/false,
-    "explanation": "Why these actions are needed"
-}}
-
-### Threat/Status:
-{threat}
-
-### JSON Response:
-"""
-            
-            prompt = PromptTemplate(template=template, input_variables=["threat"])
-            chain = LLMChain(llm=llm, prompt=prompt)
-            
-            # Generate analysis
-            print("🤖 Analyzing threat (15-30 seconds)...")
-            result = chain.run(threat=threat)
-            
-            # Try to parse JSON
-            import json
-            import re
-            parsed = None
-            try:
-                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', result, re.DOTALL)
-                if json_match:
-                    parsed = json.loads(json_match.group(0))
-            except:
-                pass
-            
-            print("\n🔍 Threat Analysis:")
-            print("══════════════════════════════════════════════════")
+            # Use parsed JSON from API server
+            parsed = data.get('parsed')
             
             if parsed:
+                # Display structured analysis
+                print("🔍 Threat Analysis:")
+                print("══════════════════════════════════════════════════")
                 print(f"Severity: {parsed.get('severity', 'Unknown')}")
                 print(f"Analysis: {parsed.get('analysis', 'N/A')}")
                 if parsed.get('explanation'):
@@ -692,105 +783,50 @@ JSON Schema:
                                         print("⏭️  Skipped")
                                         continue
                             
+                            # Verify command with API
+                            try:
+                                verify_resp = requests.post(
+                                    f"{API_URL}/execute",
+                                    json={"command": cmd, "description": desc},
+                                    timeout=5
+                                )
+                                if verify_resp.status_code != 200:
+                                    print(f"⚠️  Command not approved by API: {verify_resp.json().get('error')}")
+                                    continue
+                            except:
+                                print(f"⚠️  Could not verify command with API")
+                                if not auto_mode:
+                                    print(f"   Continue anyway? (y/n): ", end='')
+                                    if input().strip().lower() not in ['y', 'yes']:
+                                        continue
+                            
                             execute_command(cmd, desc)
                     else:
                         print("⏭️  Actions not executed")
                 else:
                     print("ℹ️  No actions recommended")
+                
+                print("\n══════════════════════════════════════════════════")
             else:
-                # Fallback: show raw response
-                print(result.strip())
+                # Fallback: display raw response
+                print("🔍 Threat Analysis:")
+                print("══════════════════════════════════════════════════")
+                print(data.get('response', ''))
+                print("══════════════════════════════════════════════════")
+        else:
+            print(f"❌ Error: API returned {response.status_code}")
+            print(response.text)
+            sys.exit(1)
             
-            print("\n══════════════════════════════════════════════════")
-        
-        sys.exit(0)
-        
-    except Exception as e:
-        print(f"❌ AI Analysis failed: {str(e)}")
-        print("\n⚠️  Unable to perform AI analysis.")
-        print("Recommendation: Investigate manually following standard incident response procedures.")
+    except requests.exceptions.Timeout:
+        print("❌ Error: Analysis timeout (>2 minutes)")
+        print()
+        print("The AI model may be too slow.")
+        print("Try a shorter threat description.")
         sys.exit(1)
-
-# Commented out: Basic rule-based analysis (not needed with AI fallback)
-# def basic_analysis(threat):
-#     """Simple rule-based analysis as fallback"""
-#     print("🔍 Threat Analysis (Basic Mode)")
-#     print()
-#     print(f"Threat Description: {threat}")
-#     print()
-#     
-#     # Simple keyword analysis
-#     threat_lower = threat.lower()
-#     
-#     severity = "Medium"
-#     threat_type = "Unknown"
-#     recommendations = []
-#     
-#     # Detect threat type
-#     if any(word in threat_lower for word in ['phishing', 'email', 'link', 'attachment']):
-#         threat_type = "Phishing Attack"
-#         severity = "High"
-#         recommendations = [
-#             "Block sender email address",
-#             "Scan all attachments for malware",
-#             "Educate users about phishing indicators",
-#             "Enable email authentication (SPF, DKIM, DMARC)"
-#         ]
-#     elif any(word in threat_lower for word in ['ransomware', 'encrypted', 'ransom']):
-#         threat_type = "Ransomware"
-#         severity = "Critical"
-#         recommendations = [
-#             "Isolate affected systems immediately",
-#             "Do not pay ransom",
-#             "Restore from clean backups",
-#             "Scan network for lateral movement"
-#         ]
-#     elif any(word in threat_lower for word in ['ddos', 'flood', 'traffic']):
-#         threat_type = "DDoS Attack"
-#         severity = "High"
-#         recommendations = [
-#             "Enable DDoS protection",
-#             "Contact ISP for mitigation",
-#             "Implement rate limiting",
-#             "Use CDN services"
-#         ]
-#     elif any(word in threat_lower for word in ['login', 'brute', 'password', 'unauthorized']):
-#         threat_type = "Unauthorized Access Attempt"
-#         severity = "High"
-#         recommendations = [
-#             "Block source IP address",
-#             "Enable MFA for all accounts",
-#             "Review access logs",
-#             "Implement account lockout policies"
-#         ]
-#     elif any(word in threat_lower for word in ['malware', 'virus', 'trojan']):
-#         threat_type = "Malware Infection"
-#         severity = "High"
-#         recommendations = [
-#             "Quarantine infected systems",
-#             "Run full antivirus scan",
-#             "Update antivirus definitions",
-#             "Investigate infection vector"
-#         ]
-#     else:
-#         recommendations = [
-#             "Monitor system logs for anomalies",
-#             "Implement security best practices",
-#             "Keep systems updated",
-#             "Enable intrusion detection"
-#         ]
-#     
-#     print(f"Threat Type: {threat_type}")
-#     print(f"Severity: {severity}")
-#     print()
-#     print("Recommendations:")
-#     for i, rec in enumerate(recommendations, 1):
-#         print(f"  {i}. {rec}")
-#     print()
-#     print("💡 Note: This is basic rule-based analysis.")
-#     print("   For AI-powered analysis, install CyberLLM-Agent:")
-#     print("   https://github.com/r-abaryan/CyberLLM-Agent")
-
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()

@@ -406,35 +406,53 @@ def show_ai_assistant():
         analyze_threat()
 
 def troubleshoot_issues():
-    """Provide troubleshooting guidance"""
+    """Delegate to AI agent for system troubleshooting"""
     clear_screen()
     print(f"{Colors.BOLD}{Colors.CYAN}🔧 System Troubleshooting{Colors.END}")
     print()
-    print(f"{Colors.YELLOW}Analyzing system...{Colors.END}")
+    print(f"{Colors.YELLOW}This will use AI agent to investigate system health and security.{Colors.END}")
+    print(f"{Colors.DIM}The agent will check: CPU, memory, disk, firewall, ports, SSH, updates{Colors.END}")
     print()
     
-    # Simple issue detection
-    mem = get_memory_usage()
-    disk = get_disk_usage()
+    print(f"{Colors.BOLD}Start AI agent investigation? (y/n): {Colors.END}", end='')
+    choice = input().strip().lower()
     
-    issues_found = False
+    if choice not in ['y', 'yes']:
+        print("⏭️  Skipped")
+        input(f"\n{Colors.BOLD}Press Enter to continue...{Colors.END}")
+        return
     
-    if mem['percent'] > 90:
-        issues_found = True
-        print(f"{Colors.RED}● High memory usage: {mem['percent']:.1f}%{Colors.END}")
-        print(f"  Solution: Check processes with 'htop' and kill heavy ones")
-        print()
+    print()
+    print(f"{Colors.YELLOW}⏳ AI agent investigating system...{Colors.END}")
+    print()
     
-    if disk['percent'] > 90:
-        issues_found = True
-        print(f"{Colors.RED}● Disk almost full: {disk['percent']:.1f}%{Colors.END}")
-        print(f"  Solution: Clean up with 'sudo apt clean && sudo apt autoremove'")
-        print()
+    # Let the agent do all the work - it has tools to check everything
+    try:
+        result = subprocess.run(
+            ['cyberxp-analyze', '--status'],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0:
+            print(result.stdout)
+        else:
+            print(f"{Colors.RED}AI analysis failed{Colors.END}")
+            if result.stderr:
+                print(result.stderr)
+            print()
+            print(f"{Colors.YELLOW}Try manually:{Colors.END}")
+            print(f"  cyberxp-analyze --status")
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.RED}Timeout. Try again later.{Colors.END}")
+    except FileNotFoundError:
+        print(f"{Colors.YELLOW}AI not configured. Install with:{Colors.END}")
+        print(f"  sudo /opt/cyberxp/scripts/install-cyberxp-dependencies.sh")
+    except Exception as e:
+        print(f"{Colors.RED}Error: {str(e)}{Colors.END}")
     
-    if not issues_found:
-        print(f"{Colors.GREEN}✓ No critical issues detected!{Colors.END}")
-        print()
-    
+    print()
     input(f"{Colors.BOLD}Press Enter to continue...{Colors.END}")
 
 def explain_error():
