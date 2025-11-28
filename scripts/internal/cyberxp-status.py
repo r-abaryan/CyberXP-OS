@@ -411,28 +411,42 @@ def troubleshoot_issues():
     print(f"{Colors.BOLD}{Colors.CYAN}🔧 System Troubleshooting{Colors.END}")
     print()
     print(f"{Colors.YELLOW}This will use AI agent to investigate system health and security.{Colors.END}")
-    print(f"{Colors.DIM}The agent will check: CPU, memory, disk, firewall, ports, SSH, updates{Colors.END}")
     print()
+    print(f"{Colors.BOLD}Choose troubleshooting mode:{Colors.END}")
+    print(f"  1. {Colors.GREEN}Simple{Colors.END} - Quick check (firewall, logins, updates, SSH) - ~2-3 min")
+    print(f"  2. {Colors.CYAN}Full{Colors.END} - Complete diagnostic (all checks) - ~5-10 min")
+    print()
+    print(f"{Colors.BOLD}Select mode (1/2) or 'q' to quit: {Colors.END}", end='')
+    mode_choice = input().strip().lower()
     
-    print(f"{Colors.BOLD}Start AI agent investigation? (y/n): {Colors.END}", end='')
-    choice = input().strip().lower()
-    
-    if choice not in ['y', 'yes']:
-        print("⏭️  Skipped")
+    if mode_choice == 'q':
         input(f"\n{Colors.BOLD}Press Enter to continue...{Colors.END}")
         return
     
+    simple_mode = (mode_choice == '1')
+    
+    if not simple_mode and mode_choice != '2':
+        print(f"{Colors.YELLOW}Invalid choice. Using full mode.{Colors.END}")
+        simple_mode = False
+    
     print()
-    print(f"{Colors.YELLOW}⏳ AI agent investigating system...{Colors.END}")
+    if simple_mode:
+        print(f"{Colors.YELLOW}⏳ AI agent running quick diagnostic...{Colors.END}")
+        cmd = ['cyberxp-analyze', '--status', '--simple']
+        timeout = 180  # 3 minutes
+    else:
+        print(f"{Colors.YELLOW}⏳ AI agent running complete diagnostic...{Colors.END}")
+        cmd = ['cyberxp-analyze', '--status']
+        timeout = 600  # 10 minutes
     print()
     
     # Let the agent do all the work - it has tools to check everything
     try:
         result = subprocess.run(
-            ['cyberxp-analyze', '--status'],
+            cmd,
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=timeout
         )
         
         if result.returncode == 0:

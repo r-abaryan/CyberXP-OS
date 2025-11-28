@@ -8,6 +8,7 @@ import sys
 import requests
 import json
 import subprocess
+import threading
 from datetime import datetime
 
 # LangChain imports
@@ -420,10 +421,13 @@ if LANGCHAIN_AVAILABLE:
             **kwargs: Any,
         ) -> str:
             try:
+                # Shorter timeout for agent calls (they're decision prompts, not full analysis)
+                # Full analysis uses 120s, but agent reasoning should be faster
+                timeout = 60 if "system health" in prompt.lower() or "diagnostic" in prompt.lower() else 30
                 response = requests.post(
                     f"{self.api_url}/generate",
                     json={"prompt": prompt},
-                    timeout=120
+                    timeout=timeout
                 )
                 if response.status_code == 200:
                     data = response.json()
@@ -432,16 +436,21 @@ if LANGCHAIN_AVAILABLE:
             except Exception as e:
                 raise Exception(f"LLM API call failed: {str(e)}")
 
-def analyze_system_health():
+def analyze_system_health(simple_mode=False):
     """Let AI agent investigate system health using its tools"""
     print("🤖 AI Agent System Troubleshooting")
     print()
-    print("The agent will perform a complete security and health diagnostic.")
-    print("⚠️  If critical issues are found, you will be prompted for immediate action.")
+    
+    if simple_mode:
+        print("The agent will perform a QUICK security check (critical items only).")
+        print("⚠️  If critical issues are found, you will be prompted for immediate action.")
+    else:
+        print("The agent will perform a COMPLETE security and health diagnostic.")
+        print("⚠️  If critical issues are found, you will be prompted for immediate action.")
     print()
     
     # Ask user if they want AI to investigate
-    print("Start complete system diagnostic? (y/n): ", end='')
+    print("Start system diagnostic? (y/n): ", end='')
     choice = input().strip().lower()
     
     if choice not in ['y', 'yes']:
@@ -449,12 +458,43 @@ def analyze_system_health():
         return
     
     print()
-    print("⏳ Agent running complete diagnostic...")
-    print("   Checking: Firewall, ports, logins, updates, SSH, CPU, memory, disk...")
+    if simple_mode:
+        print("⏳ Agent running quick diagnostic...")
+        print("   Checking: Firewall, failed logins, security updates, SSH config...")
+    else:
+        print("⏳ Agent running complete diagnostic...")
+        print("   Checking: Firewall, ports, logins, updates, SSH, CPU, memory, disk...")
     print()
     
-    # Very explicit checklist for agent - must check ALL crucial items
-    threat_desc = """Perform a COMPLETE system security and health diagnostic. You MUST check ALL of the following:
+    # Simple mode: only critical security checks
+    if simple_mode:
+        threat_desc = """Perform a QUICK security diagnostic. Check these CRITICAL items:
+
+CRITICAL SECURITY CHECKS (MANDATORY):
+1. Firewall status - use get_firewall_status tool
+2. Failed login attempts - use get_failed_logins tool
+3. Security updates - use get_security_updates tool
+4. SSH configuration - use check_ssh_config tool (check root login, password auth)
+
+After gathering this data, analyze the results and:
+
+IMMEDIATE ACTION REQUIRED if you find:
+- Firewall is INACTIVE → This is CRITICAL, prompt user immediately
+- Multiple failed logins (>5) → Possible attack, prompt user immediately
+- Critical security updates pending → Prompt user to update immediately
+- SSH allows root login → Security risk, prompt user immediately
+
+PROCESS:
+1. Check all 4 critical items first
+2. Identify which issues require IMMEDIATE action
+3. If immediate action needed, STOP and PROMPT USER: "⚠️ IMMEDIATE ACTION REQUIRED: [issue]. Would you like me to fix this now? (y/n)"
+4. Wait for user approval before proceeding
+5. After immediate actions, propose fixes for remaining issues
+
+This is a quick check - focus on critical security only."""
+    else:
+        # Full mode: complete diagnostic
+        threat_desc = """Perform a COMPLETE system security and health diagnostic. You MUST check ALL of the following:
 
 CRITICAL SECURITY CHECKS (MANDATORY):
 1. Firewall status - use get_firewall_status tool
@@ -491,7 +531,7 @@ PROCESS:
 Do NOT skip any checks. This is a complete diagnostic. You must use all 10 tools listed above."""
     
     if LANGCHAIN_AVAILABLE:
-        return run_agent_mode(threat_desc, auto_mode=False)
+        return run_agent_mode(threat_desc, auto_mode=False, simple_mode=simple_mode)
     else:
         print("⚠️  LangChain not available. Install with: pip install langchain langchain-core")
         print("   Falling back to basic analysis...")
@@ -501,6 +541,7 @@ def main():
     auto_mode = '--auto' in sys.argv or '-y' in sys.argv
     use_agent = '--agent' in sys.argv
     health_check = '--status' in sys.argv or '--health' in sys.argv
+    simple_mode = '--simple' in sys.argv
     
     if '--auto' in sys.argv:
         sys.argv.remove('--auto')
@@ -512,10 +553,12 @@ def main():
         sys.argv.remove('--status')
     if '--health' in sys.argv:
         sys.argv.remove('--health')
+    if '--simple' in sys.argv:
+        sys.argv.remove('--simple')
     
     # Health check mode
     if health_check:
-        return analyze_system_health()
+        return analyze_system_health(simple_mode=simple_mode)
     
     if len(sys.argv) < 2:
         print("Usage: cyberxp-analyze [OPTIONS] <threat_description>")
@@ -524,12 +567,14 @@ def main():
         print("  --auto, -y       Auto-execute recommended actions (no confirmation)")
         print("  --agent          Use LangChain agent for intelligent reasoning")
         print("  --status, --health  Analyze system health and propose fixes")
+        print("  --simple              Quick troubleshooting (critical items only)")
         print()
         print("Examples:")
         print("  cyberxp-analyze 'Suspicious login from unknown IP 192.168.1.100'")
         print("  cyberxp-analyze --auto 'Multiple failed SSH attempts detected'")
         print("  cyberxp-analyze --agent 'Suspicious activity detected'")
-        print("  cyberxp-analyze --status  # Analyze system health")
+        print("  cyberxp-analyze --status        # Full system diagnostic")
+        print("  cyberxp-analyze --status --simple  # Quick security check")
         sys.exit(1)
     
     threat = ' '.join(sys.argv[1:])
@@ -544,7 +589,7 @@ def main():
     # Original mode (backward compatible)
     return run_original_mode(threat, auto_mode)
 
-def run_agent_mode(threat, auto_mode):
+def run_agent_mode(threat, auto_mode, simple_mode=False):
     """Run with LangChain agent for intelligent reasoning"""
     print("🤖 Agent Mode: Using LangChain for intelligent threat response")
     print(f"   Threat: {threat}")
@@ -642,8 +687,13 @@ For critical threats, act immediately. For suspicious but uncertain threats, inv
     llm = CyberXPLLM()
     
     # Create agent using ReAct pattern
-    # Increase max_iterations for complete diagnostics (need to check 9+ items)
-    max_iters = 15 if "system health" in threat.lower() or "diagnostic" in threat.lower() else 5
+    # Adjust max_iterations based on mode
+    if simple_mode:
+        max_iters = 6  # Quick check: 4 critical items + 2 for analysis/actions
+    elif "system health" in threat.lower() or "diagnostic" in threat.lower():
+        max_iters = 12  # Full diagnostic: 10 checks + 2 for analysis/actions
+    else:
+        max_iters = 5  # Regular threat analysis
     
     try:
         from langchain.agents import initialize_agent, AgentType
@@ -674,21 +724,60 @@ For critical threats, act immediately. For suspicious but uncertain threats, inv
             handle_parsing_errors="Check your output and make sure it conforms!"
         )
     
-    # Execute
+    # Execute with overall timeout (cross-platform)
     print("⏳ Agent analyzing and responding...")
     print("=" * 60)
     
-    try:
-        result = agent_executor.invoke({
-            "input": f"Security threat: {threat}. Analyze and respond appropriately.",
-            "chat_history": []
-        })
+    # Set overall timeout based on mode
+    if simple_mode:
+        timeout_seconds = 180  # 3 minutes for quick check
+    elif "system health" in threat.lower() or "diagnostic" in threat.lower():
+        timeout_seconds = 600  # 10 minutes for full diagnostic
+    else:
+        timeout_seconds = 180  # 3 minutes for threats
+    print(f"⏱️  Timeout: {timeout_seconds // 60} minutes max")
+    print()
+    
+    result_container = {"result": None, "error": None, "timeout": False}
+    
+    def run_agent():
+        try:
+            result_container["result"] = agent_executor.invoke({
+                "input": f"Security threat: {threat}. Analyze and respond appropriately.",
+                "chat_history": []
+            })
+        except Exception as e:
+            result_container["error"] = e
+    
+    # Run agent in thread
+    agent_thread = threading.Thread(target=run_agent, daemon=True)
+    agent_thread.start()
+    agent_thread.join(timeout=timeout_seconds)
+    
+    if agent_thread.is_alive():
+        result_container["timeout"] = True
+        print("\n" + "=" * 60)
+        print("⏱️  Agent timeout (>{} min)".format(timeout_seconds // 60))
+        print("   This may be due to:")
+        print("   - Slow network (VirtualBox NAT)")
+        print("   - LLM model taking too long")
+        print("   - Too many tool calls ({} max iterations)".format(max_iters))
+        print("\n💡 Try:")
+        print("   - Check network connection to {}:{}".format(API_HOST, API_PORT))
+        print("   - Verify llm-api-server.py is running on host")
+        if not simple_mode:
+            print("   - Use --simple flag for quicker check (critical items only)")
+        print("   - Use --auto flag to skip confirmations")
+        sys.exit(1)
+    
+    if result_container["error"]:
+        print(f"\n❌ Error: {str(result_container['error'])}")
+        sys.exit(1)
+    
+    if result_container["result"]:
         print("\n" + "=" * 60)
         print("✅ Agent analysis complete")
-        print(f"\nResult: {result.get('output', 'N/A')}")
-    except Exception as e:
-        print(f"\n❌ Error: {str(e)}")
-        sys.exit(1)
+        print(f"\nResult: {result_container['result'].get('output', 'N/A')}")
 
 def run_original_mode(threat, auto_mode):
     """Original mode: Get analysis from API and execute actions"""
