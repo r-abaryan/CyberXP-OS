@@ -85,31 +85,32 @@ def main():
 def direct_ai_fallback(threat):
     """
     Direct LLM analysis without Vector DB/RAG
-    Used as fallback when the main agent fails
-    Uses 4-bit quantization for speed
+    Uses CyberXP fine-tuned model with LangChain for cybersecurity triage
     """
     try:
-        print("⏳ Loading AI model with 4-bit quantization (faster)...")
+        print("⏳ Loading CyberXP AI model (8-bit quantized)...")
+        print("   This may take 15-25 seconds...")
         
         # Import here to avoid slow startup if not needed
         import torch
-        from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndBytesConfig
+        from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig, pipeline
+        from langchain_huggingface import HuggingFacePipeline
+        from langchain.prompts import PromptTemplate
+        from langchain.chains import LLMChain
         
         model_name = "abaryan/CyberXP_Agent_Llama_3.2_1B"
         
-        # Configure 4-bit quantization for speed
+        # Configure 8-bit quantization (more compatible than 4-bit)
         quantization_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4"
+            load_in_8bit=True,
+            llm_int8_threshold=6.0
         )
         
-        # Load model from cache with quantization
+        # Load model with quantization
         print("📥 Loading tokenizer...")
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         
-        print("📥 Loading quantized model (this will be much faster)...")
+        print("📥 Loading quantized model...")
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             quantization_config=quantization_config,
@@ -117,45 +118,56 @@ def direct_ai_fallback(threat):
             low_cpu_mem_usage=True
         )
         
-        # Create generation pipeline
-        print("🔧 Creating pipeline...")
+        print("🔧 Creating LangChain pipeline...")
+        
+        # Create HuggingFace pipeline
         pipe = pipeline(
             "text-generation",
             model=model,
             tokenizer=tokenizer,
-            max_new_tokens=256,  # Reduced for speed
+            max_new_tokens=200,
             temperature=0.7,
-            top_p=0.95,
-            repetition_penalty=1.15,
+            top_p=0.9,
             do_sample=True
         )
         
-        # Construct prompt
-        prompt = f"""### Instruction:
-You are a cybersecurity expert. Analyze this threat briefly.
+        # Wrap with LangChain
+        llm = HuggingFacePipeline(pipeline=pipe)
+        
+        # Create prompt template for cybersecurity triage
+        template = """### Instruction:
+You are a cybersecurity analyst. Perform threat triage and analysis.
 
-### Input:
+### Threat Description:
 {threat}
+
+### Analysis:
+Provide:
+1. Threat Classification
+2. Severity Level (Low/Medium/High/Critical)
+3. Immediate Actions
+4. Investigation Steps
 
 ### Response:
 """
-        # Generate response
-        print("🤖 Generating analysis...")
-        result = pipe(prompt)[0]['generated_text']
         
-        # Extract just the response part
-        response = result.split("### Response:")[-1].strip()
+        prompt = PromptTemplate(template=template, input_variables=["threat"])
+        chain = LLMChain(llm=llm, prompt=prompt)
         
-        print("\n🔍 Direct AI Analysis Result:")
-        print("──────────────────────────────────────────────────")
-        print(response)
-        print("──────────────────────────────────────────────────")
+        # Generate analysis
+        print("🤖 Analyzing threat (15-30 seconds)...")
+        result = chain.run(threat=threat)
+        
+        print("\n🔍 Threat Analysis:")
+        print("══════════════════════════════════════════════════")
+        print(result.strip())
+        print("══════════════════════════════════════════════════")
         sys.exit(0)
         
     except Exception as e:
-        print(f"❌ Direct AI Fallback also failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ AI Analysis failed: {str(e)}")
+        print("\n⚠️  Unable to perform AI analysis.")
+        print("Recommendation: Investigate manually following standard incident response procedures.")
         sys.exit(1)
 
 # Commented out: Basic rule-based analysis (not needed with AI fallback)
