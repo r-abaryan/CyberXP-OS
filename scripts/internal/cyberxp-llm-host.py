@@ -436,26 +436,30 @@ if LANGCHAIN_AVAILABLE:
             except Exception as e:
                 raise Exception(f"LLM API call failed: {str(e)}")
 
-def analyze_system_health(simple_mode=False):
+def analyze_system_health(simple_mode=False, auto_mode=False):
     """Let AI agent investigate system health using its tools"""
     print("🤖 AI Agent System Troubleshooting")
     print()
     
     if simple_mode:
         print("The agent will perform a QUICK security check (critical items only).")
-        print("⚠️  If critical issues are found, you will be prompted for immediate action.")
     else:
         print("The agent will perform a COMPLETE security and health diagnostic.")
+    
+    if auto_mode:
+        print("🔧 Auto-fix mode: Issues will be fixed automatically without prompts.")
+    else:
         print("⚠️  If critical issues are found, you will be prompted for immediate action.")
     print()
     
-    # Ask user if they want AI to investigate
-    print("Start system diagnostic? (y/n): ", end='')
-    choice = input().strip().lower()
-    
-    if choice not in ['y', 'yes']:
-        print("⏭️  Skipped")
-        return
+    # Ask user if they want AI to investigate (skip if auto mode)
+    if not auto_mode:
+        print("Start system diagnostic? (y/n): ", end='')
+        choice = input().strip().lower()
+        
+        if choice not in ['y', 'yes']:
+            print("⏭️  Skipped")
+            return
     
     print()
     if simple_mode:
@@ -468,7 +472,16 @@ def analyze_system_health(simple_mode=False):
     
     # Simple mode: only critical security checks
     if simple_mode:
-        threat_desc = """Perform a QUICK security diagnostic. Check these CRITICAL items:
+        if auto_mode:
+            action_text = "fix immediately without prompting"
+            process_text = """3. If immediate action needed, fix it IMMEDIATELY (auto-fix mode)
+4. Continue with remaining fixes automatically"""
+        else:
+            action_text = "prompt user immediately"
+            process_text = """3. If immediate action needed, STOP and PROMPT USER: "⚠️ IMMEDIATE ACTION REQUIRED: [issue]. Would you like me to fix this now? (y/n)"
+4. Wait for user approval before proceeding"""
+        
+        threat_desc = f"""Perform a QUICK security diagnostic. Check these CRITICAL items:
 
 CRITICAL SECURITY CHECKS (MANDATORY):
 1. Firewall status - use get_firewall_status tool
@@ -479,22 +492,30 @@ CRITICAL SECURITY CHECKS (MANDATORY):
 After gathering this data, analyze the results and:
 
 IMMEDIATE ACTION REQUIRED if you find:
-- Firewall is INACTIVE → This is CRITICAL, prompt user immediately
-- Multiple failed logins (>5) → Possible attack, prompt user immediately
-- Critical security updates pending → Prompt user to update immediately
-- SSH allows root login → Security risk, prompt user immediately
+- Firewall is INACTIVE → This is CRITICAL, {action_text}
+- Multiple failed logins (>5) → Possible attack, {action_text}
+- Critical security updates pending → {action_text}
+- SSH allows root login → Security risk, {action_text}
 
 PROCESS:
 1. Check all 4 critical items first
 2. Identify which issues require IMMEDIATE action
-3. If immediate action needed, STOP and PROMPT USER: "⚠️ IMMEDIATE ACTION REQUIRED: [issue]. Would you like me to fix this now? (y/n)"
-4. Wait for user approval before proceeding
-5. After immediate actions, propose fixes for remaining issues
+{process_text}
+5. After immediate actions, fix remaining issues automatically
 
 This is a quick check - focus on critical security only."""
     else:
         # Full mode: complete diagnostic
-        threat_desc = """Perform a COMPLETE system security and health diagnostic. You MUST check ALL of the following:
+        if auto_mode:
+            action_text = "fix immediately without prompting"
+            process_text = """3. If immediate action needed, fix it IMMEDIATELY (auto-fix mode)
+4. Continue with remaining fixes automatically"""
+        else:
+            action_text = "prompt user immediately"
+            process_text = """3. If immediate action needed, STOP and PROMPT USER: "⚠️ IMMEDIATE ACTION REQUIRED: [issue]. Would you like me to fix this now? (y/n)"
+4. Wait for user approval before proceeding"""
+        
+        threat_desc = f"""Perform a COMPLETE system security and health diagnostic. You MUST check ALL of the following:
 
 CRITICAL SECURITY CHECKS (MANDATORY):
 1. Firewall status - use get_firewall_status tool
@@ -513,29 +534,29 @@ SYSTEM HEALTH CHECKS (MANDATORY):
 After gathering ALL this data (all 10 checks), analyze the results and:
 
 IMMEDIATE ACTION REQUIRED if you find:
-- Firewall is INACTIVE → This is CRITICAL, prompt user immediately
-- Multiple failed logins (>5) → Possible attack, prompt user immediately
-- Critical security updates pending → Prompt user to update immediately
-- SSH allows root login → Security risk, prompt user immediately
-- High CPU/Memory (>90%) → System may be compromised, prompt user immediately
+- Firewall is INACTIVE → This is CRITICAL, {action_text}
+- Multiple failed logins (>5) → Possible attack, {action_text}
+- Critical security updates pending → {action_text}
+- SSH allows root login → Security risk, {action_text}
+- High CPU/Memory (>90%) → System may be compromised, {action_text}
 
 PROCESS:
 1. Check all 10 items first
 2. Identify which issues require IMMEDIATE action
-3. If immediate action needed, STOP and PROMPT USER: "⚠️ IMMEDIATE ACTION REQUIRED: [issue]. Would you like me to fix this now? (y/n)"
-4. Wait for user approval before proceeding
-5. After immediate actions, continue with other fixes
-6. Propose fixes for ALL remaining issues
-7. Prioritize critical security issues first
+{process_text}
+5. After immediate actions, fix ALL remaining issues automatically
+6. Prioritize critical security issues first
+7. Use enable_firewall tool if firewall is inactive
+8. Use update_system tool if security updates are pending
 
 Do NOT skip any checks. This is a complete diagnostic. You must use all 10 tools listed above."""
     
     if LANGCHAIN_AVAILABLE:
-        return run_agent_mode(threat_desc, auto_mode=False, simple_mode=simple_mode)
+        return run_agent_mode(threat_desc, auto_mode=auto_mode, simple_mode=simple_mode)
     else:
         print("⚠️  LangChain not available. Install with: pip install langchain langchain-core")
         print("   Falling back to basic analysis...")
-        return run_original_mode(threat_desc, auto_mode=False)
+        return run_original_mode(threat_desc, auto_mode=auto_mode)
 
 def main():
     auto_mode = '--auto' in sys.argv or '-y' in sys.argv
@@ -558,7 +579,7 @@ def main():
     
     # Health check mode
     if health_check:
-        return analyze_system_health(simple_mode=simple_mode)
+        return analyze_system_health(simple_mode=simple_mode, auto_mode=auto_mode)
     
     if len(sys.argv) < 2:
         print("Usage: cyberxp-analyze [OPTIONS] <threat_description>")
@@ -619,9 +640,39 @@ def run_agent_mode(threat, auto_mode, simple_mode=False):
         Tool(name="update_system", func=update_system_tool, description="Update system packages including security updates. No input needed."),
     ]
     
+    # Build action instructions based on auto_mode
+    if auto_mode:
+        action_instructions = """1. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
+2. Explain why it's critical
+3. Take action IMMEDIATELY without waiting (auto-fix mode enabled)
+4. Continue with remaining checks and fixes"""
+    else:
+        action_instructions = """1. STOP your current process
+2. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
+3. Explain why it's critical
+4. Ask: "Would you like me to fix this now? (y/n)"
+5. Wait for user response before continuing
+6. If user approves, take action immediately
+7. Then continue with remaining checks and fixes"""
+    
+    # Build action instructions based on auto_mode
+    if auto_mode:
+        action_instructions = """1. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
+2. Explain why it's critical
+3. Take action IMMEDIATELY without waiting (auto-fix mode enabled)
+4. Continue with remaining checks and fixes"""
+    else:
+        action_instructions = """1. STOP your current process
+2. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
+3. Explain why it's critical
+4. Ask: "Would you like me to fix this now? (y/n)"
+5. Wait for user response before continuing
+6. If user approves, take action immediately
+7. Then continue with remaining checks and fixes"""
+    
     # Create agent prompt
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are a cybersecurity analyst agent. Analyze threats and take appropriate actions.
+        ("system", f"""You are a cybersecurity analyst agent. Analyze threats and take appropriate actions.
 
 Available tools:
 Security Actions:
@@ -656,25 +707,21 @@ IMPORTANT: When performing system health diagnostics:
 6. Analyze ALL results together
 
 IMMEDIATE ACTION DETECTION:
-- If firewall is INACTIVE → This is CRITICAL, STOP and PROMPT USER immediately
-- If failed logins > 5 → Possible attack, STOP and PROMPT USER immediately  
-- If critical security updates pending → STOP and PROMPT USER immediately
-- If SSH allows root login → Security risk, STOP and PROMPT USER immediately
-- If CPU/Memory > 90% → System may be compromised, STOP and PROMPT USER immediately
+- If firewall is INACTIVE → This is CRITICAL, fix immediately
+- If failed logins > 5 → Possible attack, investigate and block if needed
+- If critical security updates pending → Update immediately
+- If SSH allows root login → Security risk, disable immediately
+- If CPU/Memory > 90% → System may be compromised, investigate immediately
 
 When you detect immediate action needed:
-1. STOP your current process
-2. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
-3. Explain why it's critical
-4. Ask: "Would you like me to fix this now? (y/n)"
-5. Wait for user response before continuing
-6. If user approves, take action immediately
-7. Then continue with remaining checks and fixes
+{action_instructions}
 
 After immediate actions (if any):
-8. Propose fixes for ALL remaining issues
+8. Fix ALL remaining issues automatically
 9. Prioritize critical security fixes first
-10. For SSH issues: recommend disabling root login and password auth if enabled
+10. For SSH issues: disable root login and password auth if enabled
+11. Use enable_firewall tool if firewall is inactive
+12. Use update_system tool if security updates are pending
 
 For system health investigation, you MUST use all relevant monitoring tools.
 For critical threats, act immediately. For suspicious but uncertain threats, investigate first."""),

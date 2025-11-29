@@ -356,38 +356,46 @@ Issues Detected:"""
     
     return report
 
-def analyze_system_health():
+def analyze_system_health(simple_mode=False, auto_mode=False):
     """Let agent analyze system health using its tools"""
     print("🤖 Agent will investigate system health and propose fixes")
     print()
     
-    # Ask user if they want AI to analyze
-    print("Would you like AI agent to investigate system health? (y/n): ", end='')
-    choice = input().strip().lower()
+    if auto_mode:
+        print("🔧 Auto-fix mode: Issues will be fixed automatically without prompts.")
+    else:
+        print("⚠️  If critical issues are found, you will be prompted for immediate action.")
+    print()
     
-    if choice not in ['y', 'yes']:
-        print("⏭️  Skipped")
-        return
+    # Ask user if they want AI to analyze (skip if auto mode)
+    if not auto_mode:
+        print("Would you like AI agent to investigate system health? (y/n): ", end='')
+        choice = input().strip().lower()
+        
+        if choice not in ['y', 'yes']:
+            print("⏭️  Skipped")
+            return
     
     print()
     print("⏳ Agent investigating system...")
     print()
     
     # Let agent investigate - it will use tools to gather data and decide actions
-    threat_desc = "Investigate system health and security status. Check CPU, memory, disk, firewall, open ports, failed logins, and security updates. Identify any issues and propose fixes."
+    threat_desc = "Investigate system health and security status. Check CPU, memory, disk, firewall, open ports, failed logins, and security updates. Identify any issues and fix them automatically."
     
     # Use direct AI fallback with agent mode
     if LANGCHAIN_AVAILABLE:
-        direct_ai_fallback(threat_desc, use_agent=True, auto_mode=False)
+        direct_ai_fallback(threat_desc, use_agent=True, auto_mode=auto_mode)
     else:
         print("⚠️  LangChain not available. Install with: pip install langchain langchain-core")
         print("   Falling back to basic analysis...")
-        direct_ai_fallback(threat_desc, use_agent=False, auto_mode=False)
+        direct_ai_fallback(threat_desc, use_agent=False, auto_mode=auto_mode)
 
 def main():
     auto_mode = '--auto' in sys.argv or '-y' in sys.argv
     use_agent = '--agent' in sys.argv
     health_check = '--status' in sys.argv or '--health' in sys.argv
+    simple_mode = '--simple' in sys.argv
     
     if '--auto' in sys.argv:
         sys.argv.remove('--auto')
@@ -399,10 +407,12 @@ def main():
         sys.argv.remove('--status')
     if '--health' in sys.argv:
         sys.argv.remove('--health')
+    if '--simple' in sys.argv:
+        sys.argv.remove('--simple')
     
     # Health check mode
     if health_check:
-        return analyze_system_health()
+        return analyze_system_health(simple_mode=simple_mode, auto_mode=auto_mode)
     
     if len(sys.argv) < 2:
         print("Usage: cyberxp-analyze [OPTIONS] <threat_description>")

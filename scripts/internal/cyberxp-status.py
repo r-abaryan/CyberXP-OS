@@ -429,6 +429,15 @@ def troubleshoot_issues():
         print(f"{Colors.YELLOW}Invalid choice. Using full mode.{Colors.END}")
         simple_mode = False
     
+    # Ask about auto-fix
+    print()
+    print(f"{Colors.BOLD}Auto-fix mode:{Colors.END}")
+    print(f"  {Colors.GREEN}Yes{Colors.END} - Automatically fix issues without prompting")
+    print(f"  {Colors.YELLOW}No{Colors.END} - Prompt before each fix (recommended)")
+    print()
+    print(f"{Colors.BOLD}Enable auto-fix? (y/n): {Colors.END}", end='')
+    auto_fix = input().strip().lower() in ['y', 'yes']
+    
     print()
     if simple_mode:
         print(f"{Colors.YELLOW}⏳ AI agent running quick diagnostic...{Colors.END}")
@@ -438,6 +447,11 @@ def troubleshoot_issues():
         print(f"{Colors.YELLOW}⏳ AI agent running complete diagnostic...{Colors.END}")
         cmd = ['cyberxp-analyze', '--status']
         timeout = 600  # 10 minutes
+    
+    if auto_fix:
+        cmd.append('--auto')
+        print(f"{Colors.GREEN}✓ Auto-fix enabled - issues will be fixed automatically{Colors.END}")
+    
     print()
     
     # Let the agent do all the work - it has tools to check everything
