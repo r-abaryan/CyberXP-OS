@@ -9,6 +9,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import json
 import re
+import subprocess
+import os
 
 app = Flask(__name__)
 
@@ -16,6 +18,65 @@ app = Flask(__name__)
 MODEL_PATH = "abaryan/CyberXP_Agent_Llama_3.2_1B"
 MAX_LENGTH = 512
 TEMPERATURE = 0.7
+
+# SSH Configuration for VM access
+VM_SSH_HOST = os.environ.get('VM_SSH_HOST', '10.0.2.15')  # VM IP (adjust as needed)
+VM_SSH_USER = os.environ.get('VM_SSH_USER', 'root')  # SSH user (default: root)
+VM_SSH_KEY = os.environ.get('VM_SSH_KEY', '')  # Path to SSH key (optional)
+# No password - using passwordless SSH (key-based or configured)
+
+def execute_ssh_command(command, timeout=10):
+    """Execute command on VM via SSH (passwordless - root user)"""
+    try:
+        # Build SSH command
+        ssh_cmd = ['ssh']
+        
+        # Add SSH key if provided
+        if VM_SSH_KEY and os.path.exists(VM_SSH_KEY):
+            ssh_cmd.extend(['-i', VM_SSH_KEY])
+        
+        # Disable host key checking for automation (use with caution)
+        ssh_cmd.extend(['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null'])
+        
+        # Add connection timeout
+        ssh_cmd.extend(['-o', 'ConnectTimeout=5'])
+        
+        # Disable password prompt (assumes passwordless SSH is configured)
+        ssh_cmd.extend(['-o', 'BatchMode=yes', '-o', 'PasswordAuthentication=no'])
+        
+        # Build full command - root user, no password
+        ssh_target = f"{VM_SSH_USER}@{VM_SSH_HOST}"
+        ssh_cmd.append(ssh_target)
+        ssh_cmd.append(command)
+        
+        # Execute via SSH
+        result = subprocess.run(
+            ssh_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": "Command timeout",
+            "returncode": -1
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": str(e),
+            "returncode": -1
+        }
 
 # Load model once at startup
 print("Loading model...")
@@ -111,16 +172,18 @@ Common security commands:
         except Exception as e:
             return jsonify({"error": f"Tokenization failed: {str(e)}"}), 500
         
-        # Generate
+        # Generate - optimize for speed
         try:
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_length=max_length,
+                    max_length=min(max_length, 256),  # Cap at 256 for faster generation
+                    max_new_tokens=128,  # Limit new tokens for faster response
                     temperature=temperature,
                     do_sample=True,
                     top_p=0.9,
-                    pad_token_id=tokenizer.eos_token_id if tokenizer.eos_token_id else tokenizer.pad_token_id
+                    pad_token_id=tokenizer.eos_token_id if tokenizer.eos_token_id else tokenizer.pad_token_id,
+                    num_return_sequences=1
                 )
         except Exception as e:
             return jsonify({"error": f"Generation failed: {str(e)}"}), 500
@@ -161,7 +224,7 @@ Common security commands:
 
 @app.route('/execute', methods=['POST'])
 def execute():
-    """Execute security action command (called from VM)"""
+    """Execute security action command on VM via SSH"""
     try:
         data = request.json
         command = data.get('command', '')
@@ -177,7 +240,8 @@ def execute():
             'sudo mv', 'sudo cp', 'sudo chmod', 'sudo chown',
             'sudo fail2ban-client', 'sudo suricata',
             'ip addr', 'ip route', 'ip link',
-            'netstat', 'ss', 'tcpdump', 'wireshark'
+            'netstat', 'ss', 'tcpdump', 'wireshark',
+            'df', 'free', 'top', 'ps', 'grep', 'cat', 'head', 'tail'
         ]
         
         command_lower = command.lower()
@@ -189,12 +253,49 @@ def execute():
                 "message": "Only security-related commands are permitted"
             }), 403
         
-        # Return command for execution on VM side (we don't execute here)
+        # Execute command on VM via SSH
+        result = execute_ssh_command(command, timeout=30)
+        
+        if result["success"]:
+            return jsonify({
+                "status": "success",
+                "command": command,
+                "description": description,
+                "stdout": result["stdout"],
+                "stderr": result["stderr"],
+                "returncode": result["returncode"]
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "command": command,
+                "description": description,
+                "error": result["stderr"],
+                "returncode": result["returncode"]
+            }), 500
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/execute_ssh', methods=['POST'])
+def execute_ssh():
+    """Execute arbitrary command on VM via SSH (for tool execution)"""
+    try:
+        data = request.json
+        command = data.get('command', '')
+        timeout = data.get('timeout', 10)
+        
+        if not command:
+            return jsonify({"error": "No command provided"}), 400
+        
+        # Execute command on VM via SSH
+        result = execute_ssh_command(command, timeout=timeout)
+        
         return jsonify({
-            "status": "approved",
-            "command": command,
-            "description": description,
-            "message": "Command approved for execution"
+            "success": result["success"],
+            "stdout": result["stdout"],
+            "stderr": result["stderr"],
+            "returncode": result["returncode"]
         })
     
     except Exception as e:

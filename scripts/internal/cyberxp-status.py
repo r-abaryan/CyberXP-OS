@@ -351,7 +351,7 @@ def display_dashboard():
     
     # Footer
     print(f"\n{'─' * 65}")
-    print(f"{Colors.GREEN}h{Colors.END}-Help {Colors.GREEN}a{Colors.END}-AI {Colors.GREEN}s{Colors.END}-Services {Colors.GREEN}l{Colors.END}-Logs {Colors.GREEN}q{Colors.END}-Quit {Colors.DIM}| Auto-refresh: 5s{Colors.END}")
+    print(f"{Colors.GREEN}h{Colors.END}-Help {Colors.GREEN}a{Colors.END}-AI {Colors.GREEN}s{Colors.END}-Services {Colors.GREEN}l{Colors.END}-Logs {Colors.GREEN}q{Colors.END}-Quit {Colors.DIM}| Auto-refresh: 10s{Colors.END}")
 
 def show_ai_assistant():
     """Show AI help menu"""
@@ -677,7 +677,7 @@ def main():
             
             # Wait for input with timeout
             import select
-            i, o, e = select.select([sys.stdin], [], [], 5)
+            i, o, e = select.select([sys.stdin], [], [], 10)
             
             if i:
                 key = sys.stdin.read(1)

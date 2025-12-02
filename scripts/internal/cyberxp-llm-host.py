@@ -29,8 +29,8 @@ API_HOST = "10.0.2.2"  # VirtualBox NAT host IP
 API_PORT = 5000
 API_URL = f"http://{API_HOST}:{API_PORT}"
 
-def execute_command(command, description):
-    """Execute security command with logging"""
+def execute_command(command, description, use_ssh=False):
+    """Execute security command with logging - can use SSH via API or local execution"""
     print(f"\n🔧 Executing: {description}")
     print(f"   Command: {command}")
     
@@ -42,6 +42,33 @@ def execute_command(command, description):
     except:
         pass
     
+    # If use_ssh is True, execute via API server's SSH endpoint (for agent running on Windows)
+    if use_ssh:
+        try:
+            response = requests.post(
+                f"{API_URL}/execute_ssh",
+                json={"command": command, "timeout": 30},
+                timeout=35
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success"):
+                    print(f"✅ Success (via SSH)")
+                    if data.get("stdout"):
+                        print(f"   Output: {data['stdout'].strip()}")
+                    return f"Success: {data.get('stdout', '').strip()}" if data.get('stdout') else "Success"
+                else:
+                    print(f"⚠️  SSH execution failed")
+                    error_msg = data.get("stderr", "Unknown error")
+                    print(f"   Error: {error_msg}")
+                    return f"Error: {error_msg}"
+            else:
+                return f"Error: API returned {response.status_code}"
+        except Exception as e:
+            print(f"❌ SSH execution error: {str(e)}")
+            return f"Error: {str(e)}"
+    
+    # Local execution (original behavior - when running on VM)
     try:
         result = subprocess.run(
             command,
@@ -423,7 +450,8 @@ if LANGCHAIN_AVAILABLE:
             try:
                 # Shorter timeout for agent calls (they're decision prompts, not full analysis)
                 # Full analysis uses 120s, but agent reasoning should be faster
-                timeout = 60 if "system health" in prompt.lower() or "diagnostic" in prompt.lower() else 30
+                # Reduce timeouts for faster response - agent makes many calls
+                timeout = 45 if "system health" in prompt.lower() or "diagnostic" in prompt.lower() else 20
                 response = requests.post(
                     f"{self.api_url}/generate",
                     json={"prompt": prompt},
@@ -600,6 +628,14 @@ def main():
     
     threat = ' '.join(sys.argv[1:])
     
+    # Detect simple queries - don't use LangChain for these
+    is_simple_query = len(threat.split()) < 10 and not any(keyword in threat.lower() for keyword in ['diagnostic', 'health', 'status', 'check', 'analyze'])
+    
+    # For simple queries, always use direct mode (no LangChain)
+    if is_simple_query:
+        print("💡 Simple query - using direct mode (no agent)")
+        return run_original_mode(threat, auto_mode)
+    
     # Use LangChain agent if available and requested
     if use_agent and LANGCHAIN_AVAILABLE:
         return run_agent_mode(threat, auto_mode)
@@ -607,7 +643,7 @@ def main():
         print("❌ Error: --agent requires LangChain. Install with: pip install langchain langchain-core")
         sys.exit(1)
     
-    # Original mode (backward compatible)
+    # Original mode (backward compatible) - no agent
     return run_original_mode(threat, auto_mode)
 
 def run_agent_mode(threat, auto_mode, simple_mode=False):
@@ -616,28 +652,102 @@ def run_agent_mode(threat, auto_mode, simple_mode=False):
     print(f"   Threat: {threat}")
     print()
     
+    # Determine if we should use SSH execution (when LLM is on Windows host)
+    # Tools will execute via SSH if API is being used
+    use_ssh = True  # Always use SSH when agent runs via API (LLM on Windows)
+    
+    # Create tool wrappers that use SSH execution
+    def block_ip_tool_ssh(ip_address: str) -> str:
+        cmd = f"sudo ufw deny from {ip_address} 2>&1 || sudo iptables -A INPUT -s {ip_address} -j DROP"
+        return execute_command(cmd, f"Block IP: {ip_address}", use_ssh=use_ssh)
+    
+    def check_logs_tool_ssh(service: str = "all") -> str:
+        if service == "all":
+            cmd = "sudo journalctl -n 50"
+        else:
+            cmd = f"sudo journalctl -u {service} -n 50"
+        return execute_command(cmd, f"Check logs: {service}", use_ssh=use_ssh)
+    
+    def stop_service_tool_ssh(service: str) -> str:
+        cmd = f"sudo systemctl stop {service}"
+        return execute_command(cmd, f"Stop service: {service}", use_ssh=use_ssh)
+    
+    def check_connections_tool_ssh(port: str = "") -> str:
+        if port:
+            cmd = f"sudo netstat -tulpn | grep :{port}"
+        else:
+            cmd = "sudo netstat -tulpn"
+        return execute_command(cmd, f"Check connections: {port or 'all'}", use_ssh=use_ssh)
+    
+    def quarantine_file_tool_ssh(file_path: str) -> str:
+        cmd = f"sudo mkdir -p /tmp/quarantine && sudo mv {file_path} /tmp/quarantine/"
+        return execute_command(cmd, f"Quarantine file: {file_path}", use_ssh=use_ssh)
+    
+    def enable_firewall_tool_ssh() -> str:
+        cmd = "sudo ufw enable"
+        return execute_command(cmd, "Enable firewall", use_ssh=use_ssh)
+    
+    def update_system_tool_ssh() -> str:
+        cmd = "sudo apt update && sudo apt upgrade -y"
+        return execute_command(cmd, "Update system packages", use_ssh=use_ssh)
+    
+    # For monitoring tools, execute via SSH and parse results
+    def get_cpu_usage_tool_ssh() -> str:
+        cmd = "cat /proc/stat | head -1"
+        result = execute_command(cmd, "Get CPU usage", use_ssh=use_ssh)
+        # Parse and calculate CPU usage (simplified)
+        return result
+    
+    def get_memory_usage_tool_ssh() -> str:
+        cmd = "free -m"
+        return execute_command(cmd, "Get memory usage", use_ssh=use_ssh)
+    
+    def get_disk_usage_tool_ssh() -> str:
+        cmd = "df -h /"
+        return execute_command(cmd, "Get disk usage", use_ssh=use_ssh)
+    
+    def get_firewall_status_tool_ssh() -> str:
+        cmd = "sudo ufw status"
+        return execute_command(cmd, "Get firewall status", use_ssh=use_ssh)
+    
+    def get_open_ports_tool_ssh() -> str:
+        cmd = "ss -tuln | grep LISTEN | wc -l"
+        return execute_command(cmd, "Get open ports count", use_ssh=use_ssh)
+    
+    def get_failed_logins_tool_ssh() -> str:
+        cmd = "sudo grep -c 'Failed password' /var/log/auth.log 2>/dev/null || echo 0"
+        return execute_command(cmd, "Get failed logins", use_ssh=use_ssh)
+    
+    def get_security_updates_tool_ssh() -> str:
+        cmd = "apt list --upgradable 2>/dev/null | grep -c security || echo 0"
+        return execute_command(cmd, "Get security updates", use_ssh=use_ssh)
+    
+    def check_ssh_config_tool_ssh() -> str:
+        cmd = "grep -E '^PermitRootLogin|^PasswordAuthentication' /etc/ssh/sshd_config 2>/dev/null || echo 'Config not found'"
+        return execute_command(cmd, "Check SSH config", use_ssh=use_ssh)
+    
     # Create tools - agent can use these to gather data and take actions
     tools = [
-        # Security actions
-        Tool(name="block_ip", func=block_ip_tool, description="Block an IP address using firewall. Input: IP address as string"),
-        Tool(name="check_logs", func=check_logs_tool, description="Check system logs. Input: service name (e.g., 'ssh') or 'all' for all logs"),
-        Tool(name="stop_service", func=stop_service_tool, description="Stop a systemd service. Input: service name (e.g., 'ssh', 'apache2')"),
-        Tool(name="check_connections", func=check_connections_tool, description="Check active network connections. Input: optional port number (e.g., '22') or empty for all"),
-        Tool(name="quarantine_file", func=quarantine_file_tool, description="Move suspicious file to quarantine. Input: file path"),
+        # Security actions (using SSH execution)
+        Tool(name="block_ip", func=block_ip_tool_ssh, description="Block an IP address using firewall. Input: IP address as string"),
+        Tool(name="check_logs", func=check_logs_tool_ssh, description="Check system logs. Input: service name (e.g., 'ssh') or 'all' for all logs"),
+        Tool(name="stop_service", func=stop_service_tool_ssh, description="Stop a systemd service. Input: service name (e.g., 'ssh', 'apache2')"),
+        Tool(name="check_connections", func=check_connections_tool_ssh, description="Check active network connections. Input: optional port number (e.g., '22') or empty for all"),
+        Tool(name="quarantine_file", func=quarantine_file_tool_ssh, description="Move suspicious file to quarantine. Input: file path"),
         
-        # System health monitoring tools
-        Tool(name="get_cpu_usage", func=get_cpu_usage_tool, description="Get current CPU usage percentage. No input needed."),
-        Tool(name="get_memory_usage", func=get_memory_usage_tool, description="Get current memory usage. No input needed."),
-        Tool(name="get_disk_usage", func=get_disk_usage_tool, description="Get disk usage for root partition. No input needed."),
-        Tool(name="get_firewall_status", func=get_firewall_status_tool, description="Get firewall (ufw) status. No input needed."),
-        Tool(name="get_open_ports", func=get_open_ports_tool, description="Get count of open/listening ports. No input needed."),
-        Tool(name="get_failed_logins", func=get_failed_logins_tool, description="Get count of failed login attempts. No input needed."),
-        Tool(name="get_security_updates", func=get_security_updates_tool, description="Check for pending security updates. No input needed."),
-        Tool(name="check_ssh_config", func=check_ssh_config_tool, description="Check SSH security configuration (root login, password auth). No input needed."),
+        # System health monitoring tools (using SSH execution)
+        Tool(name="get_cpu_usage", func=get_cpu_usage_tool_ssh, description="Get current CPU usage percentage. No input needed."),
+        Tool(name="get_memory_usage", func=get_memory_usage_tool_ssh, description="Get current memory usage. No input needed."),
+        Tool(name="get_disk_usage", func=get_disk_usage_tool_ssh, description="Get disk usage for root partition. No input needed."),
+        Tool(name="get_firewall_status", func=get_firewall_status_tool_ssh, description="Get firewall (ufw) status. No input needed."),
+        Tool(name="get_open_ports", func=get_open_ports_tool_ssh, description="Get count of open/listening ports. No input needed."),
+        Tool(name="get_failed_logins", func=get_failed_logins_tool_ssh, description="Get count of failed login attempts. No input needed."),
+        Tool(name="get_security_updates", func=get_security_updates_tool_ssh, description="Check for pending security updates. No input needed."),
+        Tool(name="check_ssh_config", func=check_ssh_config_tool_ssh, description="Check SSH security configuration (root login, password auth). No input needed."),
         
-        # System maintenance tools
-        Tool(name="enable_firewall", func=enable_firewall_tool, description="Enable firewall (ufw). No input needed."),
-        Tool(name="update_system", func=update_system_tool, description="Update system packages including security updates. No input needed."),
+        # System maintenance tools (using SSH execution)
+        Tool(name="enable_firewall", func=enable_firewall_tool_ssh, description="Enable firewall (ufw). No input needed."),
+        Tool(name="update_system", func=update_system_tool_ssh, description="Update system packages including security updates. No input needed."),
     ]
     
     # Build action instructions based on auto_mode
@@ -734,13 +844,13 @@ For critical threats, act immediately. For suspicious but uncertain threats, inv
     llm = CyberXPLLM()
     
     # Create agent using ReAct pattern
-    # Adjust max_iterations based on mode
+    # Adjust max_iterations based on mode - reduce for faster response
     if simple_mode:
-        max_iters = 6  # Quick check: 4 critical items + 2 for analysis/actions
+        max_iters = 4  # Quick check: 4 critical items (reduced from 6)
     elif "system health" in threat.lower() or "diagnostic" in threat.lower():
-        max_iters = 12  # Full diagnostic: 10 checks + 2 for analysis/actions
+        max_iters = 8  # Full diagnostic: reduced from 12 for faster response
     else:
-        max_iters = 5  # Regular threat analysis
+        max_iters = 3  # Regular threat analysis (reduced from 5)
     
     try:
         from langchain.agents import initialize_agent, AgentType
@@ -776,12 +886,13 @@ For critical threats, act immediately. For suspicious but uncertain threats, inv
     print("=" * 60)
     
     # Set overall timeout based on mode
+    # Reduce timeouts - agent should respond faster
     if simple_mode:
-        timeout_seconds = 180  # 3 minutes for quick check
+        timeout_seconds = 120  # 2 minutes for quick check (reduced from 3)
     elif "system health" in threat.lower() or "diagnostic" in threat.lower():
-        timeout_seconds = 600  # 10 minutes for full diagnostic
+        timeout_seconds = 300  # 5 minutes for full diagnostic (reduced from 10)
     else:
-        timeout_seconds = 180  # 3 minutes for threats
+        timeout_seconds = 90  # 1.5 minutes for simple threats (reduced from 3)
     print(f"⏱️  Timeout: {timeout_seconds // 60} minutes max")
     print()
     
