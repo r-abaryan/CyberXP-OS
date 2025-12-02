@@ -5,6 +5,7 @@ Analyzes security threats and can execute recommended actions using AI agents
 """
 
 import sys
+import os
 import requests
 import json
 import subprocess
@@ -25,9 +26,43 @@ except ImportError:
     print("⚠️  LangChain not installed. Install with: pip install langchain langchain-core")
     print("   Falling back to basic mode...")
 
-API_HOST = "10.0.2.2"  # VirtualBox NAT host IP
-API_PORT = 5000
+API_HOST = os.environ.get("CYBERXP_API_HOST", "10.0.2.2")  # VirtualBox NAT host IP (overridable)
+API_PORT = int(os.environ.get("CYBERXP_API_PORT", "5000"))
 API_URL = f"http://{API_HOST}:{API_PORT}"
+
+
+def test_ssh_via_api():
+    """Quick check that SSH-tool execution via API server works."""
+    print(f"🔌 Testing SSH tool path via API at {API_URL} ...")
+    try:
+        response = requests.post(
+            f"{API_URL}/execute_ssh",
+            json={"command": "echo CYBERXP_SSH_TEST", "timeout": 10},
+            timeout=15,
+        )
+        if response.status_code != 200:
+            print(f"❌ API /execute_ssh returned HTTP {response.status_code}")
+            print(response.text)
+            sys.exit(1)
+        data = response.json()
+        if not data.get("success"):
+            print("❌ SSH execution failed:")
+            stderr = (data.get("stderr") or "").strip()
+            if stderr:
+                print(f"   stderr: {stderr}")
+            sys.exit(1)
+        stdout = (data.get("stdout") or "").strip()
+        if "CYBERXP_SSH_TEST" in stdout:
+            print("✅ SSH path OK (received test marker from VM)")
+        else:
+            print("⚠️ SSH path responded but test marker missing")
+            if stdout:
+                print(f"   stdout: {stdout}")
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ SSH test error: {e}")
+        print("   Check: VM IP, SSH daemon, firewall, and API server logs.")
+        sys.exit(1)
 
 def execute_command(command, description, use_ssh=False):
     """Execute security command with logging - can use SSH via API or local execution"""
@@ -750,22 +785,7 @@ def run_agent_mode(threat, auto_mode, simple_mode=False):
         Tool(name="update_system", func=update_system_tool_ssh, description="Update system packages including security updates. No input needed."),
     ]
     
-    # Build action instructions based on auto_mode
-    if auto_mode:
-        action_instructions = """1. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
-2. Explain why it's critical
-3. Take action IMMEDIATELY without waiting (auto-fix mode enabled)
-4. Continue with remaining checks and fixes"""
-    else:
-        action_instructions = """1. STOP your current process
-2. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
-3. Explain why it's critical
-4. Ask: "Would you like me to fix this now? (y/n)"
-5. Wait for user response before continuing
-6. If user approves, take action immediately
-7. Then continue with remaining checks and fixes"""
-    
-    # Build action instructions based on auto_mode
+    # Build action instructions based on auto_mode (deduplicated)
     if auto_mode:
         action_instructions = """1. Clearly state: "⚠️ IMMEDIATE ACTION REQUIRED: [specific issue]"
 2. Explain why it's critical
