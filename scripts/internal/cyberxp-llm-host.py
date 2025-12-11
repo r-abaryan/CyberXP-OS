@@ -29,6 +29,8 @@ except ImportError:
 API_HOST = os.environ.get("CYBERXP_API_HOST", "10.0.2.2")  # VirtualBox NAT host IP (overridable)
 API_PORT = int(os.environ.get("CYBERXP_API_PORT", "5000"))
 API_URL = f"http://{API_HOST}:{API_PORT}"
+# Tunable API timeout (seconds) for LLM calls; env override keeps code untouched
+API_TIMEOUT = int(os.environ.get("CYBERXP_API_TIMEOUT", "45"))
 
 
 def test_ssh_via_api():
@@ -64,7 +66,7 @@ def test_ssh_via_api():
         print("   Check: VM IP, SSH daemon, firewall, and API server logs.")
         sys.exit(1)
 
-def execute_command(command, description, use_ssh=False):
+def execute_command(command, description, use_ssh=False, timeout=30):
     """Execute security command with logging - can use SSH via API or local execution"""
     print(f"\n🔧 Executing: {description}")
     print(f"   Command: {command}")
@@ -82,8 +84,8 @@ def execute_command(command, description, use_ssh=False):
         try:
             response = requests.post(
                 f"{API_URL}/execute_ssh",
-                json={"command": command, "timeout": 30},
-                timeout=35
+                json={"command": command, "timeout": timeout},
+                timeout=timeout + 5  # give API a small cushion
             )
             if response.status_code == 200:
                 data = response.json()
@@ -110,7 +112,7 @@ def execute_command(command, description, use_ssh=False):
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=timeout
         )
         
         if result.returncode == 0:
@@ -483,10 +485,10 @@ if LANGCHAIN_AVAILABLE:
             **kwargs: Any,
         ) -> str:
             try:
-                # Shorter timeout for agent calls (they're decision prompts, not full analysis)
-                # Full analysis uses 120s, but agent reasoning should be faster
-                # Reduce timeouts for faster response - agent makes many calls
-                timeout = 45 if "system health" in prompt.lower() or "diagnostic" in prompt.lower() else 20
+                # Tunable timeouts via env; keep decisions fast
+                default_timeout = max(5, min(API_TIMEOUT, 20))
+                diagnostic_timeout = max(10, API_TIMEOUT)
+                timeout = diagnostic_timeout if ("system health" in prompt.lower() or "diagnostic" in prompt.lower()) else default_timeout
                 response = requests.post(
                     f"{self.api_url}/generate",
                     json={"prompt": prompt},
@@ -690,76 +692,72 @@ def run_agent_mode(threat, auto_mode, simple_mode=False):
     # Determine if we should use SSH execution (when LLM is on Windows host)
     # Tools will execute via SSH if API is being used
     use_ssh = True  # Always use SSH when agent runs via API (LLM on Windows)
-    
+
+    def ssh_tool(cmd: str, desc: str, timeout: int = 30) -> str:
+        """Central SSH tool wrapper with adjustable timeout."""
+        return execute_command(cmd, desc, use_ssh=use_ssh, timeout=timeout)
+
     # Create tool wrappers that use SSH execution
     def block_ip_tool_ssh(ip_address: str) -> str:
         cmd = f"sudo ufw deny from {ip_address} 2>&1 || sudo iptables -A INPUT -s {ip_address} -j DROP"
-        return execute_command(cmd, f"Block IP: {ip_address}", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, f"Block IP: {ip_address}", timeout=30)
+
     def check_logs_tool_ssh(service: str = "all") -> str:
-        if service == "all":
-            cmd = "sudo journalctl -n 50"
-        else:
-            cmd = f"sudo journalctl -u {service} -n 50"
-        return execute_command(cmd, f"Check logs: {service}", use_ssh=use_ssh)
-    
+        cmd = "sudo journalctl -n 50" if service == "all" else f"sudo journalctl -u {service} -n 50"
+        return ssh_tool(cmd, f"Check logs: {service}", timeout=10)
+
     def stop_service_tool_ssh(service: str) -> str:
         cmd = f"sudo systemctl stop {service}"
-        return execute_command(cmd, f"Stop service: {service}", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, f"Stop service: {service}", timeout=30)
+
     def check_connections_tool_ssh(port: str = "") -> str:
-        if port:
-            cmd = f"sudo netstat -tulpn | grep :{port}"
-        else:
-            cmd = "sudo netstat -tulpn"
-        return execute_command(cmd, f"Check connections: {port or 'all'}", use_ssh=use_ssh)
-    
+        cmd = f"sudo netstat -tulpn | grep :{port}" if port else "sudo netstat -tulpn"
+        return ssh_tool(cmd, f"Check connections: {port or 'all'}", timeout=10)
+
     def quarantine_file_tool_ssh(file_path: str) -> str:
         cmd = f"sudo mkdir -p /tmp/quarantine && sudo mv {file_path} /tmp/quarantine/"
-        return execute_command(cmd, f"Quarantine file: {file_path}", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, f"Quarantine file: {file_path}", timeout=30)
+
     def enable_firewall_tool_ssh() -> str:
         cmd = "sudo ufw enable"
-        return execute_command(cmd, "Enable firewall", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, "Enable firewall", timeout=30)
+
     def update_system_tool_ssh() -> str:
         cmd = "sudo apt update && sudo apt upgrade -y"
-        return execute_command(cmd, "Update system packages", use_ssh=use_ssh)
-    
-    # For monitoring tools, execute via SSH and parse results
+        return ssh_tool(cmd, "Update system packages", timeout=30)
+
+    # For monitoring tools, execute via SSH (quick checks: 5s timeout)
     def get_cpu_usage_tool_ssh() -> str:
         cmd = "cat /proc/stat | head -1"
-        result = execute_command(cmd, "Get CPU usage", use_ssh=use_ssh)
-        # Parse and calculate CPU usage (simplified)
-        return result
-    
+        return ssh_tool(cmd, "Get CPU usage", timeout=5)
+
     def get_memory_usage_tool_ssh() -> str:
         cmd = "free -m"
-        return execute_command(cmd, "Get memory usage", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, "Get memory usage", timeout=5)
+
     def get_disk_usage_tool_ssh() -> str:
         cmd = "df -h /"
-        return execute_command(cmd, "Get disk usage", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, "Get disk usage", timeout=5)
+
     def get_firewall_status_tool_ssh() -> str:
         cmd = "sudo ufw status"
-        return execute_command(cmd, "Get firewall status", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, "Get firewall status", timeout=5)
+
     def get_open_ports_tool_ssh() -> str:
         cmd = "ss -tuln | grep LISTEN | wc -l"
-        return execute_command(cmd, "Get open ports count", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, "Get open ports count", timeout=5)
+
     def get_failed_logins_tool_ssh() -> str:
         cmd = "sudo grep -c 'Failed password' /var/log/auth.log 2>/dev/null || echo 0"
-        return execute_command(cmd, "Get failed logins", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, "Get failed logins", timeout=5)
+
     def get_security_updates_tool_ssh() -> str:
         cmd = "apt list --upgradable 2>/dev/null | grep -c security || echo 0"
-        return execute_command(cmd, "Get security updates", use_ssh=use_ssh)
-    
+        return ssh_tool(cmd, "Get security updates", timeout=5)
+
     def check_ssh_config_tool_ssh() -> str:
         cmd = "grep -E '^PermitRootLogin|^PasswordAuthentication' /etc/ssh/sshd_config 2>/dev/null || echo 'Config not found'"
-        return execute_command(cmd, "Check SSH config", use_ssh=use_ssh)
+        return ssh_tool(cmd, "Check SSH config", timeout=5)
     
     # Create tools - agent can use these to gather data and take actions
     tools = [
