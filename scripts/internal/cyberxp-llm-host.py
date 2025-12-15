@@ -851,6 +851,7 @@ After immediate actions (if any):
 11. Use enable_firewall tool if firewall is inactive
 12. Use update_system tool if security updates are pending
 
+
 For system health investigation, you MUST use all relevant monitoring tools.
 For critical threats, act immediately. For suspicious but uncertain threats, investigate first."""),
         MessagesPlaceholder(variable_name="chat_history"),
